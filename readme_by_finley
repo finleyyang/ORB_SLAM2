@@ -1,0 +1,11 @@
+变量名的第一个字母为m表示该变量为某类的成员变量
+
+变量名的第一，二个字母表示数据类型
+
+p表示指针类型
+n表示int类型
+b表示bool类型
+s表示std：：set类型
+v表示std：：vector类型
+l表示std：：list类型
+KF表示KeyFrame类型

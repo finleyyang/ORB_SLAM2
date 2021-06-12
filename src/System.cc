@@ -50,6 +50,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         cout << "RGB-D" << endl;
 
     //Check settings file
+    // 1 初始化各成员变量
+    // 1.1读取配置文件信息，即可执行文件第三个文件。argv[2]
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
@@ -57,11 +59,12 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
        exit(-1);
     }
 
-
     //Load ORB Vocabulary
+    // 1.2创建ORB词袋
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
     mpVocabulary = new ORBVocabulary();
+    // 加载词袋
     bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
     if(!bVocLoad)
     {
@@ -72,17 +75,22 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     cout << "Vocabulary loaded!" << endl << endl;
 
     //Create KeyFrame Database
+    // 1.3创建关键帧数据库，保存ORB描述子的倒排索引（即根据描述子查找拥有该描述子的关键帧）
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
     //Create the Map
+    // 1.4创建地图
     mpMap = new Map();
 
     //Create Drawers. These are used by the Viewer
+    // 1.5创建帧绘制器和地图绘制器
     mpFrameDrawer = new FrameDrawer(mpMap);
     mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
+    // 2创建三个主要线程 tracking localmapping loopclosing 以及绘制器线程
     //Initialize the Tracking thread
     //(it will live in the main thread of execution, the one that called this constructor)
+    //*主线程就是tracking线程所以只需要创建tracking对象就行
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
                              mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
 
@@ -95,6 +103,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, mpLoopCloser);
 
     //Initialize the Viewer thread and launch
+    //如果应用绘制器就创建绘制器线程
     if(bUseViewer)
     {
         mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
@@ -103,6 +112,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
 
     //Set pointers between threads
+    // 设置线程间通信
+    //  通过keyframe来进行通信，存储关键帧的队列，一个线程往队列中存储信息，另一个线程从队列提取信息
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -155,6 +166,7 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     }
     }
 
+    //根据双目图像的数据，返回一个相机的位姿
     cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);
 
     unique_lock<mutex> lock2(mMutexState);

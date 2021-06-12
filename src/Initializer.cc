@@ -101,6 +101,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     float SH, SF;
     cv::Mat H, F;
 
+    //多线程处理单应矩阵和基础矩阵来判断哪个效果更好
     thread threadH(&Initializer::FindHomography,this,ref(vbMatchesInliersH), ref(SH), ref(H));
     thread threadF(&Initializer::FindFundamental,this,ref(vbMatchesInliersF), ref(SF), ref(F));
 

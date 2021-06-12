@@ -264,10 +264,13 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     return mCurrentFrame.mTcw.clone();
 }
 
+
+// Track主函数，进行跟踪
 void Tracking::Track()
 {
     if(mState==NO_IMAGES_YET)
     {
+        //如果没有图片输入，那么track状态转换乘未初始化
         mState = NOT_INITIALIZED;
     }
 
@@ -278,6 +281,7 @@ void Tracking::Track()
 
     if(mState==NOT_INITIALIZED)
     {
+        //初始化
         if(mSensor==System::STEREO || mSensor==System::RGBD)
             StereoInitialization();
         else
@@ -454,6 +458,7 @@ void Tracking::Track()
             mlpTemporalPoints.clear();
 
             // Check if we need to insert a new keyframe
+            // 若跟踪正常，根据条件判定是否产生关键帧
             if(NeedNewKeyFrame())
                 CreateNewKeyFrame();
 
@@ -1065,6 +1070,7 @@ void Tracking::CreateNewKeyFrame()
     if(!mpLocalMapper->SetNotStop(true))
         return;
 
+    //产生关键帧
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
     mpReferenceKF = pKF;
@@ -1132,6 +1138,7 @@ void Tracking::CreateNewKeyFrame()
         }
     }
 
+    //将关键帧传给localmapping线程
     mpLocalMapper->InsertKeyFrame(pKF);
 
     mpLocalMapper->SetNotStop(false);

@@ -49,14 +49,17 @@ void LocalMapping::Run()
 
     mbFinished = false;
 
+    //死循环，进行两个判断 1是判断是否tracking传过来有关键帧，如果有的话处理关键帧，如果没有的话，判断第二个条件是否停止，如果不停止，则等待3毫秒
     while(1)
     {
         // Tracking will see that Local Mapping is busy
         SetAcceptKeyFrames(false);
 
         // Check if there are keyframes in the queue
+        // 判断是否有关键帧从tracking线程里传过来
         if(CheckNewKeyFrames())
         {
+            // 处理关键帧
             // BoW conversion and insertion in Map
             ProcessNewKeyFrame();
 
@@ -83,7 +86,7 @@ void LocalMapping::Run()
                 // Check redundant local Keyframes
                 KeyFrameCulling();
             }
-
+            //把localmapping的关键帧传给loopcloser线程
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
         else if(Stop())
@@ -97,6 +100,7 @@ void LocalMapping::Run()
                 break;
         }
 
+        //查看是否有外部线程要求复位该线程
         ResetIfRequested();
 
         // Tracking will see that Local Mapping is busy

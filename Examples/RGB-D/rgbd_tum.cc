@@ -37,10 +37,15 @@ int main(int argc, char **argv)
 {
     if(argc != 5)
     {
+        //第一个文件是可执行文件
+        //第二个是词袋文件
+        //第三个是配置文件 yaml文件
+        //第四个是数据集
+        //最后一个是左右目配准文件
         cerr << endl << "Usage: ./rgbd_tum path_to_vocabulary path_to_settings path_to_sequence path_to_association" << endl;
         return 1;
     }
-
+    // 读取图片及左右目关联信息
     // Retrieve paths to images
     vector<string> vstrImageFilenamesRGB;
     vector<string> vstrImageFilenamesD;
@@ -48,6 +53,7 @@ int main(int argc, char **argv)
     string strAssociationFilename = string(argv[4]);
     LoadImages(strAssociationFilename, vstrImageFilenamesRGB, vstrImageFilenamesD, vTimestamps);
 
+    // 检查图片文件及输入文件的一致性
     // Check consistency in the number of images and depthmaps
     int nImages = vstrImageFilenamesRGB.size();
     if(vstrImageFilenamesRGB.empty())
@@ -61,6 +67,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // 创建SLAM对象 输入配置文件参数
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::RGBD,true);
 
@@ -74,8 +81,10 @@ int main(int argc, char **argv)
 
     // Main loop
     cv::Mat imRGB, imD;
+    // 遍历图片，进行slam
     for(int ni=0; ni<nImages; ni++)
     {
+        // 读取图片
         // Read image and depthmap from file
         imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],CV_LOAD_IMAGE_UNCHANGED);
         imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],CV_LOAD_IMAGE_UNCHANGED);
@@ -94,6 +103,7 @@ int main(int argc, char **argv)
         std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
 #endif
 
+        // 进行SLAM
         // Pass the image to the SLAM system
         SLAM.TrackRGBD(imRGB,imD,tframe);
 
@@ -107,6 +117,7 @@ int main(int argc, char **argv)
 
         vTimesTrack[ni]=ttrack;
 
+        // 加载下一张图片
         // Wait to load the next frame
         double T=0;
         if(ni<nImages-1)

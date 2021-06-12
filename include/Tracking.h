@@ -78,6 +78,7 @@ public:
 public:
 
     // Tracking states
+    // 枚举类c++中一个派生类，由用户定义的若干常数量的集合
     enum eTrackingState{
         SYSTEM_NOT_READY=-1,
         NO_IMAGES_YET=0,

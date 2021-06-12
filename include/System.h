@@ -36,6 +36,8 @@
 #include "ORBVocabulary.h"
 #include "Viewer.h"
 
+#include <unistd.h>
+
 namespace ORB_SLAM2
 {
 
@@ -125,12 +127,15 @@ public:
 private:
 
     // Input sensor
+    // 传感器类型
     eSensor mSensor;
 
     // ORB vocabulary used for place recognition and feature matching.
+    // ORB字典，保存ORB描述子和匹配结果
     ORBVocabulary* mpVocabulary;
 
     // KeyFrame database for place recognition (relocalization and loop detection).
+    // 关键帧数据，保存ORB描述子倒排索引
     KeyFrameDatabase* mpKeyFrameDatabase;
 
     // Map structure that stores the pointers to all KeyFrames and MapPoints.
@@ -142,16 +147,20 @@ private:
     Tracking* mpTracker;
 
     // Local Mapper. It manages the local map and performs local bundle adjustment.
+    // 局部建图器，负责局部BA部分
     LocalMapping* mpLocalMapper;
 
     // Loop Closer. It searches loops with every new keyframe. If there is a loop it performs
     // a pose graph optimization and full bundle adjustment (in a new thread) afterwards.
+    // 回环检测，负责全局BA
     LoopClosing* mpLoopCloser;
 
     // The viewer draws the map and the current camera pose. It uses Pangolin.
+    // 查看器
     Viewer* mpViewer;
-
+    // 帧绘制器
     FrameDrawer* mpFrameDrawer;
+    // 地图绘制器
     MapDrawer* mpMapDrawer;
 
     // System threads: Local Mapping, Loop Closing, Viewer.

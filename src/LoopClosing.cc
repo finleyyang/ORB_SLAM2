@@ -57,9 +57,10 @@ void LoopClosing::SetLocalMapper(LocalMapping *pLocalMapper)
 void LoopClosing::Run()
 {
     mbFinished =false;
-
+    //死循环
     while(1)
     {
+        //判断是否收到关键帧
         // Check if there are keyframes in the queue
         if(CheckNewKeyFrames())
         {
