@@ -146,7 +146,7 @@ static void computeOrbDescriptor(const KeyPoint& kpt,
     #undef GET_VALUE
 }
 
-
+//初始化用于计算描述子的pattern变量， pattern是用于计算描述子的256对坐标，其值是定死的
 static int bit_pattern_31_[256*4] =
 {
     8,-3, 9,5/*mean (0), correlation (0)*/,
@@ -453,13 +453,17 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
     // pre-compute the end of a row in a circular patch
     umax.resize(HALF_PATCH_SIZE + 1);
 
-    int v, v0, vmax = cvFloor(HALF_PATCH_SIZE * sqrt(2.f) / 2 + 1);
-    int vmin = cvCeil(HALF_PATCH_SIZE * sqrt(2.f) / 2);
+    int v, v0, vmax = cvFloor(HALF_PATCH_SIZE * sqrt(2.f) / 2 + 1); //45度射线与圆周坐标焦点的纵坐标 此处结果为11
+    int vmin = cvCeil(HALF_PATCH_SIZE * sqrt(2.f) / 2);//45度射线与圆周坐标焦点的纵坐标 此处结果为11
     const double hp2 = HALF_PATCH_SIZE*HALF_PATCH_SIZE;
+
+    //半径16圆的横坐标为u，纵坐标为v
+    //这里先计算第一象限下半部分45度圆的u取值的最大，结果是15，14，14，14，14，14，13，13，12，12，11，10
     for (v = 0; v <= vmax; ++v)
         umax[v] = cvRound(sqrt(hp2 - v * v));
 
     // Make sure we are symmetric
+    // 根据对称性补充第一象限上半部分45度圆的u取值的最大，通过计算重复的个数得到，结果是0，5，7，9，10
     for (v = HALF_PATCH_SIZE, v0 = 0; v >= vmin; --v)
     {
         while (umax[v0] == umax[v0 + 1])
@@ -1108,27 +1112,57 @@ void ORBextractor::ComputePyramid(cv::Mat image)
 {
     for (int level = 0; level < nlevels; ++level)
     {
+        //计算缩放+补padding后该层图像的尺寸
         float scale = mvInvScaleFactor[level];
         Size sz(cvRound((float)image.cols*scale), cvRound((float)image.rows*scale));
+        //EDGE_THRESHOLD = 19;
+        //即为周围填充的区域，上下左右各填充19，等于u方向填充38，v方向填充38
         Size wholeSize(sz.width + EDGE_THRESHOLD*2, sz.height + EDGE_THRESHOLD*2);
-        Mat temp(wholeSize, image.type()), masktemp;
+        Mat temp(wholeSize, image.type()),  masktemp;
+        //不知道masktemp是干什么的。没有也能编译过
+        //前面的步骤只计算了对应图像层的尺寸
+
+        //缩放图片并复制到对应图层并补边
+        //下面有点不太明白？？？？
         mvImagePyramid[level] = temp(Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
+        //temp通过=与mvImagePyramid[level]相关联
+        //在temp被改变时，mvImagePyramid[level]将做相同的改变,故最终得到mvImagePyramid[level]（含有分辨率不同的图像）
 
         // Compute the resized image
         if( level != 0 )
         {
+            //把原图缩放成sz大小，同时改变的还有内容
             resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
 
             copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                           BORDER_REFLECT_101+BORDER_ISOLATED);            
+                           BORDER_REFLECT_101+BORDER_ISOLATED);
+            //在图像周围以对称的方式加一个宽度为EDGE_THRESHOLD的边，便于后面的计算
+            //在后面计算特征点时的时候省去边缘的判断；
+            // 可以省去加边操作，然后在后面计算的时候做原图像的边缘判断即可
         }
         else
         {
             copyMakeBorder(image, temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
                            BORDER_REFLECT_101);            
         }
+        //copymakeborder()函数同时进行缩放的同事进行填充；
     }
 
 }
+//    不进行填充的代码
+//    void ORBextractor::ComputePyramid_brief(cv::Mat image) {
+//        for (int level = 0; level < nlevels; ++level) {
+//            float scale = mvInvScaleFactor[level];
+//            Size sz(cvRound((float)image.cols*scale), cvRound((float)image.rows*scale));
+//
+//            // Compute the resized image
+//            if (level != 0) {
+//                resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
+//            } else {
+//                mvImagePyramid[level] = image;
+//            }
+//        }
+//    }
+
 
 } //namespace ORB_SLAM
