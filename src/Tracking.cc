@@ -116,6 +116,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     int fIniThFAST = fSettings["ORBextractor.iniThFAST"];
     int fMinThFAST = fSettings["ORBextractor.minThFAST"];
 
+    //创建特征点提取器对象
     mpORBextractorLeft = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
     if(sensor==System::STEREO)
@@ -195,7 +196,7 @@ cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRe
             cvtColor(imGrayRight,imGrayRight,CV_BGRA2GRAY);
         }
     }
-
+    //创建frame对象
     mCurrentFrame = Frame(mImGray,imGrayRight,timestamp,mpORBextractorLeft,mpORBextractorRight,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
 
     Track();
@@ -535,7 +536,7 @@ void Tracking::StereoInitialization()
                 pNewMP->AddObservation(pKFini,i);
                 pKFini->AddMapPoint(pNewMP,i);
                 pNewMP->ComputeDistinctiveDescriptors();
-                pNewMP->UpdateNormalAndDepth();
+                pNewMP->UpdateNormalAndDepth();   //更新平均观测方向和距离
                 mpMap->AddMapPoint(pNewMP);
 
                 mCurrentFrame.mvpMapPoints[i]=pNewMP;
@@ -671,7 +672,7 @@ void Tracking::CreateInitialMapMonocular()
         pMP->AddObservation(pKFcur,mvIniMatches[i]);
 
         pMP->ComputeDistinctiveDescriptors();
-        pMP->UpdateNormalAndDepth();
+        pMP->UpdateNormalAndDepth(); //创建单目初始化地图
 
         //Fill Current Frame structure
         mCurrentFrame.mvpMapPoints[mvIniMatches[i]] = pMP;
@@ -1121,7 +1122,7 @@ void Tracking::CreateNewKeyFrame()
                     pNewMP->AddObservation(pKF,i);
                     pKF->AddMapPoint(pNewMP,i);
                     pNewMP->ComputeDistinctiveDescriptors();
-                    pNewMP->UpdateNormalAndDepth();
+                    pNewMP->UpdateNormalAndDepth(); //创建新的关键帧的时候
                     mpMap->AddMapPoint(pNewMP);
 
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;

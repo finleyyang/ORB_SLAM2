@@ -92,14 +92,21 @@ protected:
     //2.在图像外补一圈厚度为19的padding(提取FAST特征点需要特征点周围半径为3的圆域，计算ORB描述子需要特征点周围半径为16的圆域)
 
 
-    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);    
-    std::vector<cv::KeyPoint> DistributeOctTree(const std::vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
-                                           const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
+    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
 
     //响应值描述的是该特征点的区分度大小
     //响应值越大的点越应该被留用作特征点
     //响应值类似于分数，分数越高的学生越好，越应该被录取
 
+    //描述子是特征点的哈希运算
+    //其大小无意义，仅用来在数据库中快熟找回某个特征点
+    //描述子相当于学生的学号，系统随机运算出的一串数，用于找到该学生
+
+    std::vector<cv::KeyPoint> DistributeOctTree(const std::vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
+                                                const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
+
+    //分块搜索特征点，若某块区域内特征点普遍比较小的话就降低分数再搜索一遍，这里特征点的响应值最大为20，最小为7
+    //对得到的所有特征点进行八叉树筛选，若某区域特征点数目过于密集，则只取其中响应值最大的那一个
 
 
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);

@@ -498,7 +498,7 @@ void LoopClosing::CorrectLoop()
                 pMPi->SetWorldPos(cvCorrectedP3Dw);
                 pMPi->mnCorrectedByKF = mpCurrentKF->mnId;
                 pMPi->mnCorrectedReference = pKFi->mnId;
-                pMPi->UpdateNormalAndDepth();
+                pMPi->UpdateNormalAndDepth();  //闭环纠正
             }
 
             // Update keyframe pose with corrected Sim3. First transform Sim3 to SE3 (scale translation)

@@ -100,6 +100,7 @@ static float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
         m_01 += v * v_sum;
     }
 
+    // 为了加快速度使用了fastAtan2（）函数，输出为【0，360）精确度为0.3
     return fastAtan2((float)m_01, (float)m_10);
 }
 
@@ -109,12 +110,16 @@ static void computeOrbDescriptor(const KeyPoint& kpt,
                                  const Mat& img, const Point* pattern,
                                  uchar* desc)
 {
+    //在计算描述子的过程中，应该把特征走位像素旋转到主方向上来计算，这里为了编程方便实践上对pattern进行反向旋转
     float angle = (float)kpt.angle*factorPI;
     float a = (float)cos(angle), b = (float)sin(angle);
 
     const uchar* center = &img.at<uchar>(cvRound(kpt.pt.y), cvRound(kpt.pt.x));
     const int step = (int)img.step;
 
+    //旋转公式
+    //x'=xcos（thate）-ysin（thate）
+    //y'=xsin（thate）+ycos（thate）
     #define GET_VALUE(idx) \
         center[cvRound(pattern[idx].x*b + pattern[idx].y*a)*step + \
                cvRound(pattern[idx].x*a - pattern[idx].y*b)]
@@ -478,6 +483,7 @@ static void computeOrientation(const Mat& image, vector<KeyPoint>& keypoints, co
     for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
          keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
     {
+        //调用IC_Angle函数计算这个特征点的大小重心方向
         keypoint->angle = IC_Angle(image, keypoint->pt, umax);
     }
 }
@@ -540,6 +546,7 @@ void ExtractorNode::DivideNode(ExtractorNode &n1, ExtractorNode &n2, ExtractorNo
 
 }
 
+//输入值分别是该图层的特征点，提取特征点区域的两个方向上最大值和最小值，需要保留的点数N，以及图层数
 vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                        const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
 {
@@ -768,19 +775,26 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
 
 void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoints)
 {
+
     allKeypoints.resize(nlevels);
 
     const float W = 30;
 
     for (int level = 0; level < nlevels; ++level)
     {
+        //计算图像边缘
         const int minBorderX = EDGE_THRESHOLD-3;
         const int minBorderY = minBorderX;
         const int maxBorderX = mvImagePyramid[level].cols-EDGE_THRESHOLD+3;
         const int maxBorderY = mvImagePyramid[level].rows-EDGE_THRESHOLD+3;
 
+
         vector<cv::KeyPoint> vToDistributeKeys;
         vToDistributeKeys.reserve(nfeatures*10);
+        //reserve设置vector中的capacity()的值
+        //vector中的capacity的值是指vector允许放入多少元素
+        //vector中的size是指vector实际有多少元素
+
 
         const float width = (maxBorderX-minBorderX);
         const float height = (maxBorderY-minBorderY);
@@ -789,7 +803,13 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
         const int nRows = height/W;
         const int wCell = ceil(width/nCols);
         const int hCell = ceil(height/nRows);
+        // 每一行有多少cell
+        // 每一列有多少cell
+        // 每个cell的宽度向上取整
+        // 每个cell的高度
 
+        //1.遍历每一行和每一列，依次分别用高低阀值搜素FAST特征点
+        //不理解为什么行列不用统一标准，行(即下面，即分行的时候剩3行不把他分为一个cell)剩3个跳过，列(即右面)剩6个跳过
         for(int i=0; i<nRows; i++)
         {
             const float iniY =minBorderY+i*hCell;
@@ -810,6 +830,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
                     maxX = maxBorderX;
 
                 vector<cv::KeyPoint> vKeysCell;
+                //先用高阀值搜索，如果搜索不到的话，再用底阀值搜索
                 FAST(mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX),
                      vKeysCell,iniThFAST,true);
 
@@ -819,6 +840,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
                          vKeysCell,minThFAST,true);
                 }
 
+                //将vkeyscell的值添加到容器vToDistributeKeys中
                 if(!vKeysCell.empty())
                 {
                     for(vector<cv::KeyPoint>::iterator vit=vKeysCell.begin(); vit!=vKeysCell.end();vit++)
@@ -835,6 +857,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
         vector<KeyPoint> & keypoints = allKeypoints[level];
         keypoints.reserve(nfeatures);
 
+        //对提取的 特征值进行八叉树筛选
         keypoints = DistributeOctTree(vToDistributeKeys, minBorderX, maxBorderX,
                                       minBorderY, maxBorderY,mnFeaturesPerLevel[level], level);
 
@@ -852,6 +875,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
     }
 
     // compute orientations
+    //计算每个特征值的方向
     for (int level = 0; level < nlevels; ++level)
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
@@ -1044,9 +1068,12 @@ static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Ma
         computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
 }
 
+//不知道作者怎样想的重载一个括号？？？？？？
+//***c++的仿函数用法***
 void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
                       OutputArray _descriptors)
-{ 
+{
+    //检查图像的有效性
     if(_image.empty())
         return;
 
@@ -1054,8 +1081,10 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
     assert(image.type() == CV_8UC1 );
 
     // Pre-compute the scale pyramid
+    //构建图像金字塔
     ComputePyramid(image);
 
+    //计算特征点并进行八叉树筛选
     vector < vector<KeyPoint> > allKeypoints;
     ComputeKeyPointsOctTree(allKeypoints);
     //ComputeKeyPointsOld(allKeypoints);
@@ -1076,6 +1105,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
     _keypoints.clear();
     _keypoints.reserve(nkeypoints);
 
+    //遍历每一层图像，计算描述子
     int offset = 0;
     for (int level = 0; level < nlevels; ++level)
     {
@@ -1087,6 +1117,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
 
         // preprocess the resized image
         Mat workingMat = mvImagePyramid[level].clone();
+        //计算描述子之前进行一次高斯模糊
         GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);
 
         // Compute the descriptors
@@ -1127,6 +1158,9 @@ void ORBextractor::ComputePyramid(cv::Mat image)
         mvImagePyramid[level] = temp(Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
         //temp通过=与mvImagePyramid[level]相关联
         //在temp被改变时，mvImagePyramid[level]将做相同的改变,故最终得到mvImagePyramid[level]（含有分辨率不同的图像）
+
+        //但是最后padding部分没有传到mvImagePyramid[]里面？？？？？？？
+        //bug??????
 
         // Compute the resized image
         if( level != 0 )

@@ -153,7 +153,7 @@ void LocalMapping::ProcessNewKeyFrame()
                 if(!pMP->IsInKeyFrame(mpCurrentKeyFrame))
                 {
                     pMP->AddObservation(mpCurrentKeyFrame, i);
-                    pMP->UpdateNormalAndDepth();
+                    pMP->UpdateNormalAndDepth();  //局部地图添加关键帧的观测时
                     pMP->ComputeDistinctiveDescriptors();
                 }
                 else // this can only happen for new stereo points inserted by the Tracking
@@ -445,7 +445,7 @@ void LocalMapping::CreateNewMapPoints()
 
             pMP->ComputeDistinctiveDescriptors();
 
-            pMP->UpdateNormalAndDepth();
+            pMP->UpdateNormalAndDepth();  //创建新的地图点的时候
 
             mpMap->AddMapPoint(pMP);
             mlpRecentAddedMapPoints.push_back(pMP);

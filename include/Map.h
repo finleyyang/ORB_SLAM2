@@ -67,6 +67,11 @@ public:
     std::mutex mMutexPointCreation;
 
 protected:
+    //地图部分主要是两个数据结构，第一个是，地图点，第二个是关键帧
+    //特征点是2D的，相机图像上的点
+    //地图点是3D的，根据同意特征点在多个图片中的不同位置三角化得到的
+    //地图点比对应某特征点
+    //特征点不一定能够三角化出地图点
     std::set<MapPoint*> mspMapPoints;
     std::set<KeyFrame*> mspKeyFrames;
 
