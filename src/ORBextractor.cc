@@ -100,7 +100,24 @@ static float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
         m_01 += v * v_sum;
     }
 
-    // 为了加快速度使用了fastAtan2（）函数，输出为【0，360）精确度为0.3
+    // 为了加快速度使用了fastAtan2（）函数，输出为[0，360）精确度为0.3
+    return fastAtan2((float)m_01, (float)m_10);
+}
+
+static float IC_Angle_change(const Mat& image, Point2f pt,  const vector<int> & u_max)
+{
+    int m_01 = 0, m_10 = 0;
+    for(int v = -HALF_PATCH_SIZE; v <= HALF_PATCH_SIZE; ++v)
+    {
+        int mid_v = abs(v);
+        int d = u_max[mid_v];
+        for (int u = -d; u <= d; ++u)
+        {
+            uchar pixel = image.at<uchar>(round(pt.y - v), round(pt.x + u));
+            m_10 += u * pixel;
+            m_01 += v * pixel;
+        }
+    }
     return fastAtan2((float)m_01, (float)m_10);
 }
 
@@ -468,7 +485,7 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
         umax[v] = cvRound(sqrt(hp2 - v * v));
 
     // Make sure we are symmetric
-    // 根据对称性补充第一象限上半部分45度圆的u取值的最大，通过计算重复的个数得到，结果是0，5，7，9，10
+    // 根据对称性补充第一象限上半部分45度圆的u取值的最大，通过计算重复的个数得到，结果是3，6，8，9
     for (v = HALF_PATCH_SIZE, v0 = 0; v >= vmin; --v)
     {
         while (umax[v0] == umax[v0 + 1])
@@ -1068,7 +1085,6 @@ static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Ma
         computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
 }
 
-//不知道作者怎样想的重载一个括号？？？？？？
 //***c++的仿函数用法***
 void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
                       OutputArray _descriptors)

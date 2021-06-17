@@ -58,6 +58,7 @@ public:
              KeyFrameDatabase* pKFDB, const string &strSettingPath, const int sensor);
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
+    // tracking线程每收到一帧图像，就调用函数Tracking::GrabImageMonocular()、GrabImageRGBD()、GrabImageStereo()创建一个Frame对象，赋值给mCurrentFrame
     cv::Mat GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp);
     cv::Mat GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp);
     cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
@@ -94,7 +95,7 @@ public:
     int mSensor;
 
     // Current Frame
-    Frame mCurrentFrame;
+    Frame mCurrentFrame;         //当前正在处理的帧
     cv::Mat mImGray;
 
     // Initialization Variables (Monocular)
@@ -194,7 +195,7 @@ protected:
     // Threshold close/far points
     // Points seen as close by the stereo/RGBD sensor are considered reliable
     // and inserted from just one frame. Far points requiere a match in two keyframes.
-    float mThDepth;
+    float mThDepth;                //判断单目特征点和双目特征点的阀值，深度低于该值的被认为是单目特征点或者是双目特征点
 
     // For RGB-D inputs only. For some datasets (e.g. TUM) the depthmap values are scaled.
     float mDepthMapFactor;
@@ -204,7 +205,7 @@ protected:
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;
-    Frame mLastFrame;
+    Frame mLastFrame;                 //上一帧
     unsigned int mnLastKeyFrameId;
     unsigned int mnLastRelocFrameId;
 
