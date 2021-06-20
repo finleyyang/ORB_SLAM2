@@ -81,6 +81,7 @@ protected:
     void MapPointCulling();
     void SearchInNeighbors();
 
+    //检查某关键帧是否为冗余关键帧
     void KeyFrameCulling();
 
     cv::Mat ComputeF12(KeyFrame* &pKF1, KeyFrame* &pKF2);

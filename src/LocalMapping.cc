@@ -693,7 +693,7 @@ void LocalMapping::KeyFrameCulling()
                 }
             }
         }  
-
+        //如果该关键帧的地图点，90%都能被其他关键帧观察到，则该帧为冗余关键帧
         if(nRedundantObservations>0.9*nMPs)
             pKF->SetBadFlag();
     }

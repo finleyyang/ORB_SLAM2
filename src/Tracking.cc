@@ -589,7 +589,7 @@ void Tracking::MonocularInitialization()
             if(mpInitializer)
                 delete mpInitializer;
 
-            mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
+            mpInitializer =  new Initializer(mCurrentFrame,1.0,200);//单目相机参考帧初始化，即第一帧
 
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 

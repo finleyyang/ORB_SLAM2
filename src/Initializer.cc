@@ -46,11 +46,17 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 {
     // Fill structures with current keypoints and matches with reference frame
     // Reference Frame: 1, Current Frame: 2
-    mvKeys2 = CurrentFrame.mvKeysUn;
+    // 初始化器Initializer对象创建时就已经指定mvKeys1，调用本函数只需要指定mvKey2即可
+    mvKeys2 = CurrentFrame.mvKeysUn;        //current frame中的特征点
 
     mvMatches12.clear();
     mvMatches12.reserve(mvKeys2.size());
+    //reserve：改变当前vector所分配空间的大小，对应capacity()，表示在发生重新分配之前允许存放多少元素
     mvbMatched1.resize(mvKeys1.size());
+    //resize：改变当前使用数据的大小，如果他比当前使用的大，填充默认值
+    //对应size()，表示实际容器中保存元素的个数
+
+    //1.将vMatches12拷贝到mvMatches12，mvMatches12只保存匹配上的特征点对
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
         if(vMatches12[i]>=0)
@@ -65,6 +71,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     const int N = mvMatches12.size();
 
     // Indices for minimum set selection
+    //2.准备RANSAC运算中需要的特征点对
     vector<size_t> vAllIndices;
     vAllIndices.reserve(N);
     vector<size_t> vAvailableIndices;
@@ -79,23 +86,25 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 
     DUtils::Random::SeedRandOnce(0);
 
+    //这里最大迭代次数是200次
     for(int it=0; it<mMaxIterations; it++)
     {
         vAvailableIndices = vAllIndices;
 
         // Select a minimum set
+        // 每次选取8个点来准备RANSAC运算中的特征点--采用随机取下标的情况
         for(size_t j=0; j<8; j++)
         {
             int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
             int idx = vAvailableIndices[randi];
 
             mvSets[it][j] = idx;
-
+            //把随机取得点放在vector的最上面，并弹出去
             vAvailableIndices[randi] = vAvailableIndices.back();
             vAvailableIndices.pop_back();
         }
     }
-
+    // 计算F矩阵和H矩阵及其可置信程度
     // Launch threads to compute in parallel a fundamental matrix and a homography
     vector<bool> vbMatchesInliersH, vbMatchesInliersF;
     float SH, SF;
@@ -120,6 +129,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 
     return false;
 }
+
 
 
 void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
@@ -265,7 +275,7 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
 
     return vt.row(8).reshape(0, 3);
 }
-
+//超定方程使用SVD分解求解最小二乘解
 cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::Point2f> &vP2)
 {
     const int N = vP1.size();
@@ -760,7 +770,7 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
         meanX += vKeys[i].pt.x;
         meanY += vKeys[i].pt.y;
     }
-
+    //计算特征点的平均值
     meanX = meanX/N;
     meanY = meanY/N;
 
@@ -776,6 +786,8 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
         meanDevY += fabs(vNormalizedPoints[i].y);
     }
 
+
+    //计算平均绝对误差MAE
     meanDevX = meanDevX/N;
     meanDevY = meanDevY/N;
 

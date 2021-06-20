@@ -118,7 +118,7 @@ public:
 
 protected:
     //特征点是2D的，相机图像上的点
-    //地图点是3D的，根据同意特征点在多个图片中的不同位置三角化得到的
+    //地图点是3D的，根据同一特征点在多个图片中的不同位置三角化得到的
     //地图点比对应某特征点
     //特征点不一定能够三角化出地图点
 
@@ -127,7 +127,7 @@ protected:
      cv::Mat mWorldPos;   //地图点的世界坐标
 
      // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,size_t> mObservations;    //当前地图点在某KeyFrame中的索引   KY流 key是keyframe value是size_t整数，当前地图点在该keyframe中的索引
+     std::map<KeyFrame*,size_t> mObservations;    //当前地图点在某KeyFrame中的索引   KV流 key是keyframe value是size_t整数，当前地图点在该keyframe中的索引
      // （关键帧中有一个变量std::vector<MapPoint*> mvpMapPoints储存该关键帧的地图点，mObservations存储的就是该数组的索引）
 
      // Mean viewing direction

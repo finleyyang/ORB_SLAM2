@@ -118,7 +118,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 }
 
 
-// 从关键帧pKF中移除本地地图点
+//删除当前地图点对某KeyFrame的观测
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;
