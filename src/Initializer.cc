@@ -142,7 +142,7 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
     cv::Mat T1, T2;
     Normalize(mvKeys1,vPn1, T1);
     Normalize(mvKeys2,vPn2, T2);
-    cv::Mat T2inv = T2.inv();
+    cv::Mat T2inv = T2.inv();  //用于恢复原始尺度
 
     // Best Results variables
     score = 0.0;
@@ -159,6 +159,7 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
     for(int it=0; it<mMaxIterations; it++)
     {
         // Select a minimum set
+        // 把匹配上的点提取出来，都是匹配好一对一对的
         for(size_t j=0; j<8; j++)
         {
             int idx = mvSets[it][j];
@@ -168,6 +169,7 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
         }
 
         cv::Mat Hn = ComputeH21(vPn1i,vPn2i);
+        //恢复原始尺度
         H21i = T2inv*Hn*T1;
         H12i = H21i.inv();
 
@@ -193,7 +195,7 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
     cv::Mat T1, T2;
     Normalize(mvKeys1,vPn1, T1);
     Normalize(mvKeys2,vPn2, T2);
-    cv::Mat T2t = T2.t();
+    cv::Mat T2t = T2.t();  //用于恢复原始尺度
 
     // Best Results variables
     score = 0.0;
@@ -212,6 +214,7 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
         // Select a minimum set
         for(int j=0; j<8; j++)
         {
+            // 把匹配上的点提取出来，都是匹配好一对一对的
             int idx = mvSets[it][j];
 
             vPn1i[j] = vPn1[mvMatches12[idx].first];
@@ -219,11 +222,13 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
         }
 
         cv::Mat Fn = ComputeF21(vPn1i,vPn2i);
-
+        //恢复原始尺度
         F21i = T2t*Fn*T1;
 
+        //根据从投影误差进行卡方检验
         currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);
 
+        //记录最优解
         if(currentScore>score)
         {
             F21 = F21i.clone();
@@ -269,6 +274,7 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
 
     }
 
+    //奇异值分解，取vt最后一行
     cv::Mat u,w,vt;
 
     cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
@@ -281,7 +287,7 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
     const int N = vP1.size();
 
     cv::Mat A(N,9,CV_32F);
-
+    //A*H=0
     for(int i=0; i<N; i++)
     {
         const float u1 = vP1[i].x;
@@ -300,12 +306,14 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
         A.at<float>(i,8) = 1;
     }
 
+    //2.奇异值分解A，A为8*9矩阵，取vt的最后一行
     cv::Mat u,w,vt;
 
     cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
-    cv::Mat Fpre = vt.row(8).reshape(0, 3);
+    cv::Mat Fpre = vt.row(8).reshape(0, 3);//v的最后一行
 
+    //将F矩阵的秩强制设为2
     cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
     w.at<float>(2)=0;
@@ -314,7 +322,7 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
 }
 
 float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vector<bool> &vbMatchesInliers, float sigma)
-{   
+{
     const int N = mvMatches12.size();
 
     const float h11 = H21.at<float>(0,0);
@@ -492,7 +500,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     cv::Mat R1, R2, t;
 
     // Recover the 4 motion hypotheses
-    DecomposeE(E21,R1,R2,t);  
+    DecomposeE(E21,R1,R2,t);
 
     cv::Mat t1=t;
     cv::Mat t2=-t;
@@ -698,7 +706,7 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
 
 
     int bestGood = 0;
-    int secondBestGood = 0;    
+    int secondBestGood = 0;
     int bestSolutionIdx = -1;
     float bestParallax = -1;
     vector<cv::Point3f> bestP3D;
@@ -759,47 +767,56 @@ void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, 
 
 void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T)
 {
-    float meanX = 0;
-    float meanY = 0;
-    const int N = vKeys.size();
+    //这里的归一化，归一的是这些点在x方向和在y方向上的一阶绝对矩。步骤如下
+    const int N = vKeys.size();// 点总数
+    vNormalizedPoints.resize(N);//标准化后的点
 
-    vNormalizedPoints.resize(N);
-
+    float meanX = 0;//横坐标均值
+    float meanY = 0;//纵坐标均值
     for(int i=0; i<N; i++)
     {
-        meanX += vKeys[i].pt.x;
-        meanY += vKeys[i].pt.y;
+        meanX += vKeys[i].pt.x;// 横坐标之和
+        meanY += vKeys[i].pt.y;// 纵坐标之和
     }
-    //计算特征点的平均值
-    meanX = meanX/N;
-    meanY = meanY/N;
+    meanX = meanX/N;//横坐标均值
+    meanY = meanY/N;//纵坐标均值
 
-    float meanDevX = 0;
-    float meanDevY = 0;
+    // 分别累计这些特征点偏离横纵坐标均值的多少
+    float meanDevX = 0;//绝对矩
+    float meanDevY = 0;//绝对矩
 
+    // 将所有vKeys点减去中心坐标，使x坐标和y坐标均值分别为0
     for(int i=0; i<N; i++)
     {
-        vNormalizedPoints[i].x = vKeys[i].pt.x - meanX;
+        vNormalizedPoints[i].x = vKeys[i].pt.x - meanX;// 去均值点坐标
         vNormalizedPoints[i].y = vKeys[i].pt.y - meanY;
-
-        meanDevX += fabs(vNormalizedPoints[i].x);
+        //平移目的使其形心位于原点
+        //累计这些特征点偏离横纵坐标均值的程度
+        meanDevX += fabs(vNormalizedPoints[i].x);// 总绝对矩
         meanDevY += fabs(vNormalizedPoints[i].y);
     }
-
-
-    //计算平均绝对误差MAE
-    meanDevX = meanDevX/N;
+    // 求出平均到每个点上，其坐标偏离横纵坐标均值的程度；将其倒数作为一个尺度缩放因子
+    meanDevX = meanDevX/N; //均值绝对矩
     meanDevY = meanDevY/N;
 
     float sX = 1.0/meanDevX;
     float sY = 1.0/meanDevY;
-
+    //
+    // 将x坐标和y坐标分别进行尺度缩放，使得x坐标和y坐标的一阶绝对矩分别为1
+    // 这里所谓的一阶绝对矩其实就是随机变量到取值的中心的绝对值的平均值, 归一化就体现在这里
     for(int i=0; i<N; i++)
     {
-        vNormalizedPoints[i].x = vNormalizedPoints[i].x * sX;
+        // 归一化后的点坐标   //就是简单地对特征点的坐标进行进一步的缩放
+        vNormalizedPoints[i].x = vNormalizedPoints[i].x * sX;  // 去均值点坐标 * 绝对矩倒数
         vNormalizedPoints[i].y = vNormalizedPoints[i].y * sY;
     }
-
+    //计算归一化矩阵
+    // |sX  0  -meanx*sX|
+    // |0   sY -meany*sY|
+    // |0   0       1   |
+    //  标准化矩阵
+    //  标准化矩阵 * 点坐标 = 标准化后的坐标
+    //  点坐标 = 标准化矩阵的逆矩阵 * 标准化后的的坐标
     T = cv::Mat::eye(3,3,CV_32F);
     T.at<float>(0,0) = sX;
     T.at<float>(1,1) = sY;
