@@ -120,6 +120,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 
     // Compute ratio of scores
     float RH = SH/(SH+SF);
+    //如果单应矩阵的分数占比大于0.4，则用单应矩阵求导,ORBSLAM中更倾向使用单应矩阵
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
     if(RH>0.40)
@@ -131,7 +132,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 }
 
 
-
+//H矩阵本来只需要4对点就能解出结果，但是为了能使H和F能在同一维度下比较，所以也取八对点
 void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
 {
     // Number of putative matches
@@ -170,9 +171,10 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
 
         cv::Mat Hn = ComputeH21(vPn1i,vPn2i);
         //恢复原始尺度
-        H21i = T2inv*Hn*T1;
-        H12i = H21i.inv();
+        H21i = T2inv*Hn*T1; //单应矩阵
+        H12i = H21i.inv(); //单应矩阵逆矩阵
 
+        //分值越高说明，计算解的H或F越好
         currentScore = CheckHomography(H21i, H12i, vbCurrentInliers, mSigma);
 
         if(currentScore>score)
@@ -184,6 +186,9 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
     }
 }
 
+//以下两种场景更适合使用单应矩阵进行初始化
+//相机看到的场景是一个平面
+//连续两帧之间没发生平移，只发生旋转
 
 void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, cv::Mat &F21)
 {
@@ -321,6 +326,10 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
     return  u*cv::Mat::diag(w)*vt;
 }
 
+//卡方检验通过构造检验统计量x2来比较期望结果和实际结果之间的差别，从而得出观察频数极值的发生概率
+//x2 = ∑（O-E）2/E;
+//根据重投影误差构造统计量X2，其值越大，观察结果和期望结果之间的差别越明显，某次计算结果越可能用到外点
+
 float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vector<bool> &vbMatchesInliers, float sigma)
 {
     const int N = mvMatches12.size();
@@ -345,18 +354,22 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
     const float h32inv = H12.at<float>(2,1);
     const float h33inv = H12.at<float>(2,2);
 
-    vbMatchesInliers.resize(N);
+    vbMatchesInliers.resize(N);           //用来标记是否是外点
 
-    float score = 0;
+    float score = 0;            //置信度得分
 
     const float th = 5.991;
+    //卡方统计表，两个自由度的时候，它的阀值为5.99时，它的正确率达到95；
+    //若统计量大于该阀值，则认为计算矩阵使用到了外电，将其分数设为0；
+    //若统计量大于该阀值，则将统计量裕值设为该解的置信度分数
 
-    const float invSigmaSquare = 1.0/(sigma*sigma);
+    const float invSigmaSquare = 1.0/(sigma*sigma);  //信息矩阵方差平方的倒数
 
     for(int i=0; i<N; i++)
     {
         bool bIn = true;
 
+        //提取特征点对
         const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
         const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
 
@@ -367,15 +380,20 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
 
         // Reprojection error in first image
         // x2in1 = H12*x2
-
+        // 计算img2到img1的重投影误差
         const float w2in1inv = 1.0/(h31inv*u2+h32inv*v2+h33inv);
+        //计算比例误差
         const float u2in1 = (h11inv*u2+h12inv*v2+h13inv)*w2in1inv;
         const float v2in1 = (h21inv*u2+h22inv*v2+h23inv)*w2in1inv;
+        // |u2|   |h1 h2 h3|    |u1|
+        // |v2| = |h4 h5 h6| *  |v2|
+        // |1 |   |h7 h8 h9|    |1 |
 
         const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);
-
         const float chiSquare1 = squareDist1*invSigmaSquare;
+        //然后计算重投影误差
 
+        //将离群点标记上，非离群点累加计算得分
         if(chiSquare1>th)
             bIn = false;
         else
@@ -383,20 +401,25 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
 
         // Reprojection error in second image
         // x1in2 = H21*x1
-
+        // 计算img1到img2的重投影误差
         const float w1in2inv = 1.0/(h31*u1+h32*v1+h33);
+        //计算比例误差
         const float u1in2 = (h11*u1+h12*v1+h13)*w1in2inv;
         const float v1in2 = (h21*u1+h22*v1+h23)*w1in2inv;
 
-        const float squareDist2 = (u2-u1in2)*(u2-u1in2)+(v2-v1in2)*(v2-v1in2);
 
+        const float squareDist2 = (u2-u1in2)*(u2-u1in2)+(v2-v1in2)*(v2-v1in2);
         const float chiSquare2 = squareDist2*invSigmaSquare;
 
+        //将离群点标记上，非离群点累加计算得分
         if(chiSquare2>th)
             bIn = false;
         else
             score += th - chiSquare2;
 
+        // 问题？？如果1到2的重投影超过阀值，2-1没有超过，就会被标记为离群点，为什么还要算分数？？？
+
+        //如果是1-2或者2-1有一个被标记为离群点，则false
         if(bIn)
             vbMatchesInliers[i]=true;
         else
@@ -443,10 +466,11 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
 
         // Reprojection error in second image
         // l2=F21x1=(a2,b2,c2)
-
+        // 根据重投影，来计算误差
         const float a2 = f11*u1+f12*v1+f13;
         const float b2 = f21*u1+f22*v1+f23;
         const float c2 = f31*u1+f32*v1+f33;
+        //img1上的特征点与F相乘，即为img2上的射线，理论上特征点的投影应该在射线上
 
         const float num2 = a2*u2+b2*v2+c2;
 
@@ -461,14 +485,16 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
 
         // Reprojection error in second image
         // l1 =x2tF21=(a1,b1,c1)
-
+        // 根据重投影，来计算误差
         const float a1 = f11*u2+f21*v2+f31;
         const float b1 = f12*u2+f22*v2+f32;
         const float c1 = f13*u2+f23*v2+f33;
+        //img2上的特征点与F相乘，即为img1上的射线，理论上特征点的投影应该在射线上
 
         const float num1 = a1*u1+b1*v1+c1;
-
         const float squareDist2 = num1*num1/(a1*a1+b1*b1);
+        //然后根据点到线的距离来计算误差
+        //然后平方来求平方误差
 
         const float chiSquare2 = squareDist2*invSigmaSquare;
 
@@ -496,15 +522,16 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
 
     // Compute Essential Matrix from Fundamental Matrix
     cv::Mat E21 = K.t()*F21*K;
+    //首先计算出本质矩阵
 
     cv::Mat R1, R2, t;
 
     // Recover the 4 motion hypotheses
     DecomposeE(E21,R1,R2,t);
-
+    //结算出两个R和两个t
     cv::Mat t1=t;
     cv::Mat t2=-t;
-
+    //形成4对解
     // Reconstruct with the 4 hyphoteses and check
     vector<cv::Point3f> vP3D1, vP3D2, vP3D3, vP3D4;
     vector<bool> vbTriangulated1,vbTriangulated2,vbTriangulated3, vbTriangulated4;
@@ -523,6 +550,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     int nMinGood = max(static_cast<int>(0.9*N),minTriangulated);
 
     int nsimilar = 0;
+    //最优解应该与其他的解有区分度，除了最优解，其他的都应该小于最优解的70%，否者返回false
     if(nGood1>0.7*maxGood)
         nsimilar++;
     if(nGood2>0.7*maxGood)
@@ -539,6 +567,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     }
 
     // If best reconstruction has enough parallax initialize
+    // 选择记录最佳结果，检验三角化出的特征点数和视角差
     if(maxGood==nGood1)
     {
         if(parallax1>minParallax)
@@ -588,6 +617,8 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     return false;
 }
 
+
+//把单应矩阵解出旋转矩阵和位移向量
 bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
                       cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
@@ -765,6 +796,7 @@ void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, 
     x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
 }
 
+//使用均值和一阶中心矩归一化，归一化可以增强计算稳定性
 void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T)
 {
     //这里的归一化，归一的是这些点在x方向和在y方向上的一阶绝对矩。步骤如下
@@ -940,14 +972,21 @@ void Initializer::DecomposeE(const cv::Mat &E, cv::Mat &R1, cv::Mat &R2, cv::Mat
 {
     cv::Mat u,w,vt;
     cv::SVD::compute(E,w,u,vt);
+    //对E进行SVD分解
 
     u.col(2).copyTo(t);
+    //取u的最后一行为t;
     t=t/cv::norm(t);
+    //因为t的具体长度是不能确定的；
+    //取正则化的；
 
     cv::Mat W(3,3,CV_32F,cv::Scalar(0));
     W.at<float>(0,1)=-1;
     W.at<float>(1,0)=1;
     W.at<float>(2,2)=1;
+    //      |0, -1, 0|
+    //    W=|1, 0, 0|
+    //      |0, 0, 1|
 
     R1 = u*W*vt;
     if(cv::determinant(R1)<0)
@@ -956,6 +995,17 @@ void Initializer::DecomposeE(const cv::Mat &E, cv::Mat &R1, cv::Mat &R2, cv::Mat
     R2 = u*W.t()*vt;
     if(cv::determinant(R2)<0)
         R2=-R2;
+    //取行列式为正的矩阵
 }
-
+//设本质矩阵E=[t]xR,它的SVD分解E=U∑Vt，其中∑的奇异值一定是[1，1，0]T，不考虑本质矩阵的符号，则存在两种可能的解：
+//S=UZUt, R=UWVt
+//S=UZUt, R=UWtVt
+//其中   |0, -1, 0|   |0, -1, 0|
+//    W=|1, 0, 0|  Z=|1, 0, 0|
+//      |0, 0, 1|    |0, 0, 0|
+//推论：已知本质矩阵E=U∑Vt 和第一个相机的矩阵P=[I|0]， 那么第二个摄像头的矩阵有以下四种可能的选择：
+//P=[UWVt|u];[UWVt|-u];[UWtVt|u];[UWtVt|-u];
+//u是U的最后一列
+//u=t的具体空间长度是不能恢复出来的，只能在相差一个尺度因子的情况下恢复平移单位向量
+//
 } //namespace ORB_SLAM
