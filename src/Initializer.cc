@@ -617,6 +617,9 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     return false;
 }
 
+// H矩阵分解常见有两种方法：Faugeras SVD-based decomposition 和 Zhang SVD-based decomposition
+// 参考文献：Motion and structure from motion in a piecewise plannar environment
+// 这篇参考文献和下面的代码使用了Faugeras SVD-based decomposition算法
 
 //把单应矩阵解出旋转矩阵和位移向量
 bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
@@ -665,6 +668,23 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
 
     float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);
     float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};
+    // step3.2：计算四种旋转矩阵R，t
+    // 计算旋转矩阵 R‘，计算ppt中公式18
+    //      | ctheta      0   -aux_stheta|       | aux1|
+    // Rp = |    0        1       0      |  tp = |  0  |
+    //      | aux_stheta  0    ctheta    |       |-aux3|
+
+    //      | ctheta      0    aux_stheta|       | aux1|
+    // Rp = |    0        1       0      |  tp = |  0  |
+    //      |-aux_stheta  0    ctheta    |       | aux3|
+
+    //      | ctheta      0    aux_stheta|       |-aux1|
+    // Rp = |    0        1       0      |  tp = |  0  |
+    //      |-aux_stheta  0    ctheta    |       |-aux3|
+
+    //      | ctheta      0   -aux_stheta|       |-aux1|
+    // Rp = |    0        1       0      |  tp = |  0  |
+    //      | aux_stheta  0    ctheta    |       | aux3|
 
     for(int i=0; i<4; i++)
     {
