@@ -35,6 +35,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, KeyFrame *pRefKF, Map* pMap):
     mnCorrectedReference(0), mnBAGlobalForKF(0), mpRefKF(pRefKF), mnVisible(1), mnFound(1), mbBad(false),
     mpReplaced(static_cast<MapPoint*>(NULL)), mfMinDistance(0), mfMaxDistance(0), mpMap(pMap)
 {
+    //将当前三维特征点的位置赋值给该MapPoint的Pos
     Pos.copyTo(mWorldPos);
     mNormalVector = cv::Mat::zeros(3,1,CV_32F);
 
@@ -106,6 +107,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 
     //如果没有添加过观测，记录下能观测到该MapPoint的KF和该MapPoint在KF中的索引
     mObservations[pKF]=idx;
+    //即哪一个关键帧的第几个是该地图点
 
     //这里的对象是地图点，所以不会出现多个Key对应多个value，一个图片上该地图点只会出现一次
 

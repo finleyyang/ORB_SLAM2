@@ -40,6 +40,9 @@
 
 #include <mutex>
 
+
+
+
 namespace ORB_SLAM2
 {
 
@@ -80,30 +83,38 @@ public:
 
     // Tracking states
     // 枚举类c++中一个派生类，由用户定义的若干常数量的集合
+
+    //用于表示跟踪状态
     enum eTrackingState{
-        SYSTEM_NOT_READY=-1,
-        NO_IMAGES_YET=0,
-        NOT_INITIALIZED=1,
-        OK=2,
-        LOST=3
+        SYSTEM_NOT_READY=-1,  //系统没有准备好，一般就是在启动后加载配置文件和词典文件时候的状态
+        NO_IMAGES_YET=0,      //还没有接收到输入图像
+        NOT_INITIALIZED=1,    //接收到图像但未初始化成功
+        OK=2,                 //跟踪成功
+        LOST=3                //跟踪失败
     };
 
-    eTrackingState mState;
-    eTrackingState mLastProcessedState;
+
+    //Trackingh状态变化
+    // SYSTEM_NOT_READY -> 加载词典和配置文件 -> NO_IMAGE -> 接受新图像 -> NOT_INITIALIZED -> 初始化（单目初始化）或者（双目初始化） ->
+    // OK->Track（失败）—> LOST ->Relocalizaion()重定位成功 ->OK
+    //   ->Track(成功) ->OK    ->Relocalizaion()重定位失败 ->LOST
+
+    eTrackingState mState;                     //当前帧的跟踪状态
+    eTrackingState mLastProcessedState;         //上一帧的跟踪状态
 
     // Input sensor
     int mSensor;
 
     // Current Frame
-    Frame mCurrentFrame;         //当前正在处理的帧
+    Frame mCurrentFrame;             //当前正在处理的帧
     cv::Mat mImGray;
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
-    std::vector<int> mvIniMatches;
-    std::vector<cv::Point2f> mvbPrevMatched;
-    std::vector<cv::Point3f> mvIniP3D;
-    Frame mInitialFrame;
+    std::vector<int> mvIniMatches;        //单目初始化中参考帧与当前帧的匹配关系
+    std::vector<cv::Point2f> mvbPrevMatched;  //单目初始化参考帧地图点
+    std::vector<cv::Point3f> mvIniP3D;    //单目初始化中三角化得到的地图点坐标
+    Frame mInitialFrame;                //单目初始化参考帧(实际就是前一帧)
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
@@ -123,11 +134,15 @@ protected:
     void Track();
 
     // Map initialization for stereo and RGB-D
-    void StereoInitialization();
+    void StereoInitialization();             //双目初始化，只要左目能找到500个地图点，就算双目初始化成功
+    //即完成了初始化，又构建了初始化局部地图
 
     // Map initialization for monocular
-    void MonocularInitialization();
-    void CreateInitialMapMonocular();
+    void MonocularInitialization();      //相机单目初始化，需要用到单目初始器, 单目初始化需要相邻的两帧用来初始化
+
+    //单目相机初始化分为两个步骤，1是初始化估计相机两帧之间的相对运动， 2是建立局部地图
+
+    void CreateInitialMapMonocular();      //单目初始化完成后，创建局部地图
 
     void CheckReplacedInLastFrame();
     bool TrackReferenceKeyFrame();
@@ -165,12 +180,12 @@ protected:
     KeyFrameDatabase* mpKeyFrameDB;
 
     // Initalization (only for monocular)
-    Initializer* mpInitializer;
+    Initializer* mpInitializer;               //单目初始化器
 
     //Local Map
-    KeyFrame* mpReferenceKF;
-    std::vector<KeyFrame*> mvpLocalKeyFrames;
-    std::vector<MapPoint*> mvpLocalMapPoints;
+    KeyFrame* mpReferenceKF;       //参考关键帧，初始化成功的帧就会被设为关键参考帧
+    std::vector<KeyFrame*> mvpLocalKeyFrames;      //局部关键帧列表，初始化成功后向其中添加局部关键帧
+    std::vector<MapPoint*> mvpLocalMapPoints;      //局部地图点列表，初始化成功后向其中添加局部地图点
     
     // System
     System* mpSystem;

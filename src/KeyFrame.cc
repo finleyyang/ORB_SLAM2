@@ -214,6 +214,7 @@ int KeyFrame::GetWeight(KeyFrame *pKF)
 void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
+    //该帧的第几个特征点是哪一个地图点
     mvpMapPoints[idx]=pMP;
 }
 

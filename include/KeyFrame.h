@@ -225,7 +225,7 @@ protected:
     cv::Mat Cw; // Stereo middel point. Only for visualization
 
     // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;                    //当前关键帧观测到的地图点
+    std::vector<MapPoint*> mvpMapPoints;                    //当前关键帧观测到的地图点,,,跟观测的特征点是一一对应的
     // （关键帧中有一个变量std::vector<MapPoint*> mvpMapPoints储存该关键帧的地图点）
 
     // BoW

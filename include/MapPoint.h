@@ -87,7 +87,7 @@ public:
 public:
     long unsigned int mnId;
     static long unsigned int nNextId;
-    long int mnFirstKFid;
+    long int mnFirsmCurrentFrametKFid;
     long int mnFirstFrame;
     int nObs;                                        //记录当前地图点被多少相机观测到，单目帧每次观测加一，双目帧每次观测加2
     //为啥不是private？？？？
@@ -128,6 +128,7 @@ protected:
 
      // Keyframes observing the point and associated index in keyframe
      std::map<KeyFrame*,size_t> mObservations;    //当前地图点在某KeyFrame中的索引   KV流 key是keyframe value是size_t整数，当前地图点在该keyframe中的索引
+     //  即哪一个关键帧的第几个是该地图点
      // （关键帧中有一个变量std::vector<MapPoint*> mvpMapPoints储存该关键帧的地图点，mObservations存储的就是该数组的索引）
 
      // Mean viewing direction

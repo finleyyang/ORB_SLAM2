@@ -1184,6 +1184,9 @@ void ORBextractor::ComputePyramid(cv::Mat image)
             //把原图缩放成sz大小，同时改变的还有内容
             resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
 
+            //resize应该改成下面才能mvUmagePyramid[]补充
+            //resize(mvImagePyramid[level], temp, sz, 0, 0, INTER_LINEAR);
+
             copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
                            BORDER_REFLECT_101+BORDER_ISOLATED);
             //在图像周围以对称的方式加一个宽度为EDGE_THRESHOLD的边，便于后面的计算
