@@ -695,6 +695,7 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
+    //计算该特征点的世界三维坐标
     const float z = mvDepth[i];
     if(z>0)
     {

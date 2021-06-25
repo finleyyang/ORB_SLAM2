@@ -225,12 +225,12 @@ protected:
     unsigned int mnLastRelocFrameId;
 
     //Motion Model
-    cv::Mat mVelocity;
+    cv::Mat mVelocity;           //相机前一帧运动速度，跟踪完局部地图后跟新该成员变量
 
     //Color order (true RGB, false BGR, ignored if grayscale)
     bool mbRGB;
 
-    list<MapPoint*> mlpTemporalPoints;
+    list<MapPoint*> mlpTemporalPoints;  //双目/RGBD相机输入时,为前一帧生成的临时地图点跟踪成功后该容器会被清空,其中的地图点会被删除
 };
 
 } //namespace ORB_SLAM

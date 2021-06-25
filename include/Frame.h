@@ -239,10 +239,10 @@ private:
     void AssignFeaturesToGrid();
 
     // Rotation, translation and camera center
-    cv::Mat mRcw;
-    cv::Mat mtcw;
-    cv::Mat mRwc;
-    cv::Mat mOw; //==mtwc
+    cv::Mat mRcw;  //旋转，从世界坐标到相机坐标
+    cv::Mat mtcw;  //平移，从世界坐标到相机坐标
+    cv::Mat mRwc;  //旋转，从相机坐标到世界坐标
+    cv::Mat mOw; //==mtwc 平移，从世界坐标到相机坐标
 };
 
 }// namespace ORB_SLAM

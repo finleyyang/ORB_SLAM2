@@ -288,6 +288,9 @@ void Tracking::Track()
     mLastProcessedState=mState;
 
     // Get Map Mutex -> Map cannot be changed
+    // 地图更新时加锁。保证地图不会发生变化
+    // 疑问:这样子会不会影响地图的实时更新?
+    // 回答：主要耗时在构造帧中特征点的提取和匹配部分,在那个时候地图是没有被上锁的,有足够的时间更新地图
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
     if(mState==NOT_INITIALIZED)
@@ -307,10 +310,16 @@ void Tracking::Track()
     }
     else
     {
+        //系统已经被初始化了，开始跟踪
+        //初始位姿估计主要有3种方法
+        //1. 根据恒速运动来估计位姿
+        //2. 根据参考帧估计位姿
+        //3. 通过重定位估计位姿
         // System is initialized. Track Frame.
         bool bOK;
 
         // Initial camera pose estimation using motion model or relocalization (if tracking is lost)
+        //mbOnlyTracking等于false表示正常SLAM模式定位加地图更新，mbOnlyTracking等于True表示仅定位模式
         if(!mbOnlyTracking)
         {
             // Local Mapping is activated. This is the normal behaviour, unless
@@ -319,14 +328,23 @@ void Tracking::Track()
             if(mState==OK)
             {
                 // Local Mapping might have changed some MapPoints tracked in last frame
+                // 检查并更新上一帧被替换的MapPoints
+                // 局部建图线程则可能会对原有的地图点进行替换.在这里进行检查
                 CheckReplacedInLastFrame();
 
+                //如果运动模型为空，这证明刚开始初始化，或者已经跟丢了
+                //如果当前帧紧紧跟着重定位的帧的后面，我们将重定位帧来恢复运动
+                //mnLastRelocFrameId 上一次重定位的那一帧
                 if(mVelocity.empty() || mCurrentFrame.mnId<mnLastRelocFrameId+2)
                 {
+                    //用最近的关键帧来跟踪当前的普通帧
+                    //通过BoW的方式在参考帧中寻找当前帧特征点的匹配帧的匹配点
+                    //优化每个特征点都对应3D点重投影误差即可得到位姿
                     bOK = TrackReferenceKeyFrame();
                 }
                 else
                 {
+                    //用恒速模型来跟踪当前帧
                     bOK = TrackWithMotionModel();
                     if(!bOK)
                         bOK = TrackReferenceKeyFrame();
@@ -534,47 +552,72 @@ void Tracking::StereoInitialization()
         mCurrentFrame.SetPose(cv::Mat::eye(4,4,CV_32F));
 
         // Create KeyFrame
+        // 将当前帧构造为初始关键帧
+        // mCurrentFrame的数据类型为Frame
+        // KeyFrame包含Frame、地图3D点、以及BoW
+        // KeyFrame里有一个mpMap，Tracking里有一个mpMap，而KeyFrame里的mpMap都指向Tracking里的这个mpMap
+        // KeyFrame里有一个mpKeyFrameDB，Tracking里有一个mpKeyFrameDB，而KeyFrame里的mpMap都指向Tracking里的这个mpKeyFrameDB
         KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
         // Insert KeyFrame in the map
+        //在地图中添加初始关键帧
+        //KeyFrame中包含了地图，地图中也包含了KeyFrame
         mpMap->AddKeyFrame(pKFini);
 
         // Create MapPoints and asscoiate to KeyFrame
         //构建地图点
         for(int i=0; i<mCurrentFrame.N;i++)
         {
+            //只有特征点深度大于0的情况才能被构建成地图点
             float z = mCurrentFrame.mvDepth[i];
             if(z>0)
             {
+                //通过反投影得到特征点在世界坐标系下的3D坐标
                 cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
+
                 MapPoint* pNewMP = new MapPoint(x3D,pKFini,mpMap);
+                // 为该MapPoint添加属性：
+                // a.观测到该MapPoint的关键帧
+                // b.该MapPoint的描述子
+                // c.该MapPoint的平均观测方向和深度范围
+
                 pNewMP->AddObservation(pKFini,i);
+                //表示pNewMP该地图点，可以被哪一帧的哪一个特征点
                 pKFini->AddMapPoint(pNewMP,i);
+                //表示pKFini改关键帧，可以观测到哪一个地图点，在关键帧上是哪一个
+
                 pNewMP->ComputeDistinctiveDescriptors();
+                // 从众多观测到该MapPoint的特征点中挑选区分度最高的描述子
+
                 pNewMP->UpdateNormalAndDepth();   //更新平均观测方向和距离
                 mpMap->AddMapPoint(pNewMP);
 
+                // 将该MapPoint添加到当前帧的mvpMapPoints中
+                // 为当前Frame的特征点与MapPoint之间建立索引
                 mCurrentFrame.mvpMapPoints[i]=pNewMP;
             }
         }
 
         cout << "New map created with " << mpMap->MapPointsInMap() << " points" << endl;
 
+        //在局部地图里添加该初始关键帧
         mpLocalMapper->InsertKeyFrame(pKFini);
 
+        //更新当前帧为上一帧
         mLastFrame = Frame(mCurrentFrame);
         mnLastKeyFrameId=mCurrentFrame.mnId;
         mpLastKeyFrame = pKFini;
 
+        //把初始化关键帧添加到trackong中的localkeyframe
         mvpLocalKeyFrames.push_back(pKFini);
         mvpLocalMapPoints=mpMap->GetAllMapPoints();
         mpReferenceKF = pKFini;
         mCurrentFrame.mpReferenceKF = pKFini;
 
+        // 把当前（最新的）局部MapPoints作为ReferenceMapPoints
+        // ReferenceMapPoints是DrawMapPoints函数画图的时候用的
         mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
-
         mpMap->mvpKeyFrameOrigins.push_back(pKFini);
-
         mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
 
         mState=OK;
@@ -790,17 +833,24 @@ void Tracking::CreateInitialMapMonocular()
     mState=OK;
 }
 
+
+// 检查上一帧的地图点是否需要被替换
+// Local Mapping 线程可能会将关键帧中某些地图点进行替换，由于tracking中需要用到上一帧地图点，所以这里检查并更新上一帧中被替换的地图点
+
 void Tracking::CheckReplacedInLastFrame()
 {
     for(int i =0; i<mLastFrame.N; i++)
     {
         MapPoint* pMP = mLastFrame.mvpMapPoints[i];
-
+        //如果该地图点是否存在
         if(pMP)
         {
+            // 获取其是否被替换,以及替换后的点
+            // 这也是程序不直接删除这个地图点删除的原因
             MapPoint* pRep = pMP->GetReplaced();
             if(pRep)
             {
+                // 然后替换掉
                 mLastFrame.mvpMapPoints[i] = pRep;
             }
         }
@@ -808,9 +858,22 @@ void Tracking::CheckReplacedInLastFrame()
 }
 
 
+
+/*
+ * @brief 用参考关键帧的地图点来对当前普通帧进行跟踪
+ *
+ * Step 1：将当前普通帧的描述子转化为BoW向量
+ * Step 2：通过词袋BoW加速当前帧与参考帧之间的特征点匹配
+ * Step 3: 将上一帧的位姿态作为当前帧位姿的初始值
+ * Step 4: 通过优化3D-2D的重投影误差来获得位姿
+ * Step 5：剔除优化后的匹配点中的外点
+ * @return 如果匹配数超10，返回true
+ *
+ */
 bool Tracking::TrackReferenceKeyFrame()
 {
     // Compute Bag of Words vector
+    //将当前帧的描述子转成BoW向量
     mCurrentFrame.ComputeBoW();
 
     // We perform first an ORB matching with the reference keyframe
@@ -818,24 +881,31 @@ bool Tracking::TrackReferenceKeyFrame()
     ORBmatcher matcher(0.7,true);
     vector<MapPoint*> vpMapPointMatches;
 
+    //通过词袋模型加速当前帧与参考帧之间的特征点匹配
     int nmatches = matcher.SearchByBoW(mpReferenceKF,mCurrentFrame,vpMapPointMatches);
 
+    //匹配点数目小于15则认为跟踪失败
     if(nmatches<15)
         return false;
 
+    //将上一帧的位置作为当前帧的初始值
     mCurrentFrame.mvpMapPoints = vpMapPointMatches;
-    mCurrentFrame.SetPose(mLastFrame.mTcw);
+    mCurrentFrame.SetPose(mLastFrame.mTcw); // 用上一次的Tcw设置初值，在PoseOptimization可以收敛快一些
 
+    //应用重投影误差，来优化获取更精准的位姿
     Optimizer::PoseOptimization(&mCurrentFrame);
 
     // Discard outliers
+    //剔除优化后的匹配点中的外点，优化过程中有了对外点的标记
     int nmatchesMap = 0;
     for(int i =0; i<mCurrentFrame.N; i++)
     {
         if(mCurrentFrame.mvpMapPoints[i])
         {
+            //如果对应的这个点为外点
             if(mCurrentFrame.mvbOutlier[i])
             {
+                //从当前帧把这个数据删除
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
 
                 mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL);
@@ -848,23 +918,31 @@ bool Tracking::TrackReferenceKeyFrame()
                 nmatchesMap++;
         }
     }
-
+    // 跟踪成功的数目超过10才认为跟踪成功，否则跟踪失败
     return nmatchesMap>=10;
 }
 
 void Tracking::UpdateLastFrame()
 {
     // Update pose according to reference keyframe
+    //根据参考关键帧确定当前帧的位姿,使用关键帧是因为参考关键帧位姿更准确
+    //上一普通帧的参考关键帧，注意这里用的是参考关键帧（位姿准）而不是上上一帧的普通帧
     KeyFrame* pRef = mLastFrame.mpReferenceKF;
+    //ref_keyframe 到 lastframe的位姿变换
     cv::Mat Tlr = mlRelativeFramePoses.back();
 
+    //将上一帧的世界坐标下的位姿计算出来
+    //l:last, r:reference, w:world
+    //Tlw = Tlr*Trw
     mLastFrame.SetPose(Tlr*pRef->GetPose());
 
+    //对于双目/RGBD相机,生成新的临时地图点
     if(mnLastKeyFrameId==mLastFrame.mnId || mSensor==System::MONOCULAR || !mbOnlyTracking)
         return;
 
     // Create "visual odometry" MapPoints
     // We sort points according to their measured depth by the stereo/RGB-D sensor
+    // 将上一帧中存在深度的特征点按深度从小到大排序
     vector<pair<float,int> > vDepthIdx;
     vDepthIdx.reserve(mLastFrame.N);
     for(int i=0; i<mLastFrame.N;i++)
@@ -878,18 +956,20 @@ void Tracking::UpdateLastFrame()
 
     if(vDepthIdx.empty())
         return;
-
+    //构成深度以及这个特征点的标签后，按深度从小到大排序
     sort(vDepthIdx.begin(),vDepthIdx.end());
 
     // We insert all close points (depth<mThDepth)
     // If less than 100 close points, we insert the 100 closest ones.
-    int nPoints = 0;
+    // 将上一帧中没有三角化的特征点三角化出来，作为临时地图点
+    int nPoints = 0;   //统计处理了多少特征点
     for(size_t j=0; j<vDepthIdx.size();j++)
     {
         int i = vDepthIdx[j].second;
 
         bool bCreateNew = false;
 
+        //检查特征点有没有三角化出来，
         MapPoint* pMP = mLastFrame.mvpMapPoints[i];
         if(!pMP)
             bCreateNew = true;
@@ -918,40 +998,59 @@ void Tracking::UpdateLastFrame()
     }
 }
 
+
+/**
+ * @brief 根据恒定速度模型用上一帧地图点来对当前帧进行跟踪
+ * Step 1：更新上一帧的位姿；对于双目或RGB-D相机，还会根据深度值生成临时地图点
+ * Step 2：根据上一帧特征点对应地图点进行投影匹配
+ * Step 3：优化当前帧位姿
+ * Step 4：剔除地图点中外点
+ * @return 如果匹配数大于10，认为跟踪成功，返回true
+ */
+
 bool Tracking::TrackWithMotionModel()
 {
+    // 最小距离 < 0.9*次小距离 匹配成功，检查旋转
     ORBmatcher matcher(0.9,true);
 
     // Update last frame pose according to its reference keyframe
     // Create "visual odometry" points if in Localization Mode
+    //更新上一帧的位姿，用于双目或者RGBD相机，还会根据深度值产生临时地图点
     UpdateLastFrame();
 
+    //用之前估计的速度，用恒速模型得到当前帧的初始位姿
     mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);
 
+    //清空当前帧的地图点
     fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
 
     // Project points seen in previous frame
+    //设置匹配过程中的搜索半径
     int th;
     if(mSensor!=System::STEREO)
         th=15;
     else
         th=7;
+    //用上一帧地图点进行投影匹配，如果匹配点不够，则扩大搜索半径再来一次
     int nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,th,mSensor==System::MONOCULAR);
 
     // If few matches, uses a wider window search
     if(nmatches<20)
     {
+        //扩大半径再搜索一次
         fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
         nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,2*th,mSensor==System::MONOCULAR);
     }
-
+    //如果还不够则认为跟踪失败
     if(nmatches<20)
         return false;
 
     // Optimize frame pose with all matches
+    //利用3D-2D投影关系，优化当前帧位姿
     Optimizer::PoseOptimization(&mCurrentFrame);
 
     // Discard outliers
+    //删除地图点中的外点
     int nmatchesMap = 0;
     for(int i =0; i<mCurrentFrame.N; i++)
     {
