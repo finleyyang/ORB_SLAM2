@@ -345,13 +345,20 @@ void Tracking::Track()
                 else
                 {
                     //用恒速模型来跟踪当前帧
+                    // 用最近的普通帧来跟踪当前的普通帧
+                    // 根据恒速模型设定当前帧的初始位姿
+                    // 通过投影的方式在参考帧中找当前帧特征点的匹配点
+                    // 优化每个特征点所对应3D点的投影误差即可得到位姿
                     bOK = TrackWithMotionModel();
                     if(!bOK)
+                        //根据恒速模型失败了，只能根据参考关键帧来跟踪
                         bOK = TrackReferenceKeyFrame();
                 }
             }
             else
             {
+                //如果跟踪状态失败了，只能重新定位了
+                //BoW搜索，PnP求解
                 bOK = Relocalization();
             }
         }
@@ -969,22 +976,26 @@ void Tracking::UpdateLastFrame()
 
         bool bCreateNew = false;
 
-        //检查特征点有没有三角化出来，
+        //检查特征点有没有没三角化出来，没有的把特征点三角化出来，或者没有被观测到的，作为临时地图点
         MapPoint* pMP = mLastFrame.mvpMapPoints[i];
         if(!pMP)
             bCreateNew = true;
         else if(pMP->Observations()<1)
         {
+            //地图点创建后，如果没有被观测到，也需要重新创建地图点
             bCreateNew = true;
         }
 
         if(bCreateNew)
         {
+            //首先计算出该特征点的世界坐标
             cv::Mat x3D = mLastFrame.UnprojectStereo(i);
+            //创建地图点 1.三维点 2.追踪的地图 3.这个特征点存在的帧 4.特征点ID
             MapPoint* pNewMP = new MapPoint(x3D,mpMap,&mLastFrame,i);
 
+            //加入上一帧的地图点中
             mLastFrame.mvpMapPoints[i]=pNewMP;
-
+            //添加到临时地图点中，之后地图点会被删除
             mlpTemporalPoints.push_back(pNewMP);
             nPoints++;
         }
