@@ -244,7 +244,7 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
 }
 
 
-cv::Mat Initializer::PComputeH21(const vector<cv::Point2f> &vP1, const vector<cv::Point2f> &vP2)
+cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv::Point2f> &vP2)
 {
     const int N = vP1.size();
 

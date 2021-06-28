@@ -87,7 +87,7 @@ public:
 public:
     long unsigned int mnId;
     static long unsigned int nNextId;
-    long int mnFirsmCurrentFrametKFid;
+    long int mnFirstKFid;
     long int mnFirstFrame;
     int nObs;                                        //记录当前地图点被多少相机观测到，单目帧每次观测加一，双目帧每次观测加2
     //为啥不是private？？？？
