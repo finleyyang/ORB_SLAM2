@@ -193,7 +193,7 @@ public:
     std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 
     // Camera pose.
-    cv::Mat mTcw;
+    cv::Mat mTcw; //相机坐标
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
@@ -239,7 +239,9 @@ private:
     void AssignFeaturesToGrid();
 
     // Rotation, translation and camera center
-    cv::Mat mRcw;  //旋转，从世界坐标到相机坐标
+
+    // ....cw,即为世界到相机坐标，即为当前目标的世界坐标
+    cv::Mat mRcw;  //旋转，从世界坐标到相机坐标  //即为当前相机的pose
     cv::Mat mtcw;  //平移，从世界坐标到相机坐标
     cv::Mat mRwc;  //旋转，从相机坐标到世界坐标
     cv::Mat mOw; //==mtwc 平移，从世界坐标到相机坐标

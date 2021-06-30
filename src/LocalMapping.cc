@@ -32,6 +32,16 @@ LocalMapping::LocalMapping(Map *pMap, const float bMonocular):
     mbMonocular(bMonocular), mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true)
 {
+    /*
+    * mbStopRequested：    外部线程调用，为true，表示外部线程请求停止 local mapping
+    * mbStopped：          为true表示可以并终止localmapping 线程
+    * mbNotStop：          true，表示不要停止 localmapping 线程，因为要插入关键帧了。需要和 mbStopped 结合使用
+    * mbAcceptKeyFrames：  true，允许接受关键帧。tracking 和local mapping 之间的关键帧调度
+    * mbAbortBA：          是否流产BA优化的标志位
+    * mbFinishRequested：  请求终止当前线程的标志。注意只是请求，不一定终止。终止要看 mbFinished
+    * mbResetRequested：   请求当前线程复位的标志。true，表示一直请求复位，但复位还未完成；表示复位完成为false
+    * mbFinished：         判断最终LocalMapping::Run() 是否完成的标志。
+    */
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -64,39 +74,49 @@ void LocalMapping::Run()
             ProcessNewKeyFrame();
 
             // Check recent MapPoints
+            // 删除劣质地图点
             MapPointCulling();
 
             // Triangulate new MapPoints
+            // 创建新的地图点，当前关键帧，与相邻关键帧通过三角化产生新的地图点，使得跟踪更加稳定
             CreateNewMapPoints();
 
+            // 已经正在处理队列中最后一个关键帧
             if(!CheckNewKeyFrames())
             {
                 // Find more matches in neighbor keyframes and fuse point duplications
+                // 检查并融合当前关键帧与相邻关键帧帧（两级相邻）中重复的地图点
                 SearchInNeighbors();
             }
-
+            // 终止BA的标志
             mbAbortBA = false;
 
+            // 已经处理完队列中的最后的一个关键帧，并且闭环检测没有请求停止LocalMapping
             if(!CheckNewKeyFrames() && !stopRequested())
             {
                 // Local BA
+                // 当局部地图的关键帧大于两个的时候进行局部BA
                 if(mpMap->KeyFramesInMap()>2)
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
                 // Check redundant local Keyframes
+                // 判断当前帧是否冗余，如果冗余的话，就删除
+                // 判断冗余的条件是该帧90%的地图点都能被其他关键帧观察到观测到
                 KeyFrameCulling();
             }
             //把localmapping的关键帧传给loopcloser线程
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
-        else if(Stop())
+        else if(Stop())   //当要终止当前线程的时候
         {
             // Safe area to stop
             while(isStopped() && !CheckFinish())
             {
+                //当未完全结束的时候
                 usleep(3000);
             }
             if(CheckFinish())
+                //然后确定终止，就跳出循环
                 break;
         }
 
@@ -106,12 +126,14 @@ void LocalMapping::Run()
         // Tracking will see that Local Mapping is busy
         SetAcceptKeyFrames(true);
 
+        // 如果当前线程已经结束了就跳出主循环
         if(CheckFinish())
             break;
 
         usleep(3000);
     }
 
+    // 设置线程已经终止
     SetFinish();
 }
 
@@ -129,8 +151,22 @@ bool LocalMapping::CheckNewKeyFrames()
     return(!mlNewKeyFrames.empty());
 }
 
+/**
+ * @brief 处理列表中的关键帧，
+ * 计算BoW
+ * 更新观测、描述子、共视图
+ * 插入到地图
+ */
+
+//(!pMP->IsInKeyFrame(mpCurrentKeyFrame),该处通过判断该地图点是否观测都当前关键帧，来判断该地图点是否是当前关键帧中新生成的
+//1. 若地图点是本关键帧跟踪过程中匹配得到的（Tracking::TrackwithMOtionModel(), Tracking::TrackReferenceKeyFrame()和Tracking::SearchLocalPoints()中调用
+// 了ORBmatcher::SearchByProjection()和ORBmatcher::SearchByBow()方法），则是之前关键帧中创建的地图点，只需要添加其对当前帧的观测即可。是不用做判断的
+//2. 若地图点是本关键帧跟踪过程中新生成的(包括：1.单目或双目初始化Tracking::MonocularInitialization(), Tracking::StereoInitialization(); 2.创建新的关键帧
+// Tracking::CreateNewKeyFrame())，则该地图点中有对当前关键帧的观测，是新生成的地图点，放入容器mlNewKeyFrames中供LocalMapping::MapPointCulling()函数筛选
+
 void LocalMapping::ProcessNewKeyFrame()
 {
+    // 取出队列头的关键帧
     {
         unique_lock<mutex> lock(mMutexNewKFs);
         mpCurrentKeyFrame = mlNewKeyFrames.front();
@@ -138,9 +174,11 @@ void LocalMapping::ProcessNewKeyFrame()
     }
 
     // Compute Bags of Words structures
+    // 计算该关键帧的词袋向量
     mpCurrentKeyFrame->ComputeBoW();
 
     // Associate MapPoints to the new keyframe and update normal and descriptor
+    //根据地图点中是否观测到当前帧来判断该地图点是否是新生成的
     const vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
 
     for(size_t i=0; i<vpMapPointMatches.size(); i++)
@@ -150,14 +188,21 @@ void LocalMapping::ProcessNewKeyFrame()
         {
             if(!pMP->isBad())
             {
+                //如果地图点不是在该关键帧中，则说明地图点不是新生成的，是根据以往的关键帧生成的，则添加地图点对当前帧的观测
+                //如果地图点在该关键帧中，则说明地图点是来自双目或RGBD跟踪过程中生成的新的地图点
                 if(!pMP->IsInKeyFrame(mpCurrentKeyFrame))
                 {
+                    // 该地图点是跟踪本关键帧时匹配得到的，在地图点中加入对当前帧关键帧的观测
                     pMP->AddObservation(mpCurrentKeyFrame, i);
                     pMP->UpdateNormalAndDepth();  //局部地图添加关键帧的观测时
+                    // 更新地图点的最佳描述子
                     pMP->ComputeDistinctiveDescriptors();
                 }
                 else // this can only happen for new stereo points inserted by the Tracking
                 {
+                    // 如果当前帧中已经包含了这个地图点,但是这个地图点中却没有包含这个关键帧的信息
+                    // 这些地图点可能来自双目或RGBD跟踪过程中新生成的地图点，或者是CreateNewMapPoints 中通过三角化产生
+                    // 将上述地图点放入mlpRecentAddedMapPoints，等待后续MapPointCulling函数的检验
                     mlpRecentAddedMapPoints.push_back(pMP);
                 }
             }
@@ -165,11 +210,22 @@ void LocalMapping::ProcessNewKeyFrame()
     }    
 
     // Update links in the Covisibility Graph
+    // 更新关键帧间的连接关系
     mpCurrentKeyFrame->UpdateConnections();
 
     // Insert Keyframe in Map
+    // 将该关键帧插入地图点中
     mpMap->AddKeyFrame(mpCurrentKeyFrame);
 }
+
+/**
+ * @brief 检查新增地图点，根据地图点的观测情况剔除质量不好的新增的地图点
+ * mlpRecentAddedMapPoints：存储新增的地图点，这里是要删除其中不靠谱的
+ */
+
+//满足以下两个条件的之一的就算是冗余地图点
+//1.召回率=实际观察到该地图点的帧数/理论上应当观测到该地图点的帧数 < 0.25 坏点
+//2.在创建的3帧内观测数目小于2(双目小于3) 坏点
 
 void LocalMapping::MapPointCulling()
 {
@@ -189,43 +245,61 @@ void LocalMapping::MapPointCulling()
         MapPoint* pMP = *lit;
         if(pMP->isBad())
         {
+            //标准0:地图点在其他地方被删除了
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
         else if(pMP->GetFoundRatio()<0.25f )
         {
+            //标准1:召回率小于0.25
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
+        //mnFirstKFid:第一次观测带该地图点的帧ID
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs)
         {
+            //标准2:从创建开始连续3个关键帧内观测数目小于cnThObs（单目小于2），（双目小于3）
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)
+            //通过3个关键帧的考察，认为是好的地图点
             lit = mlpRecentAddedMapPoints.erase(lit);
         else
             lit++;
     }
 }
 
+/**
+ * @brief 用当前关键帧与相邻关键帧通过三角化产生新的地图点，使得跟踪更稳
+ *
+ */
+
+//将当前关键帧分别与共视程度最高的前10(单目取20)个共视关键帧两两进行特征匹配，生成特征点
+
 void LocalMapping::CreateNewMapPoints()
 {
     // Retrieve neighbor keyframes in covisibility graph
+    //nn表示搜索最佳共视关键帧的数目
+    //不同传感器要求不一样，单目的时候需要更多的具有较好共视关系的关键帧来建立地图
     int nn = 10;
     if(mbMonocular)
         nn=20;
+    // 从当前关键帧中取出共视程度最好的nn帧相邻共视关键帧
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
+    //特征点匹配设置 最佳距离<0.6*最佳距离，比较严苛了，不检查旋转
     ORBmatcher matcher(0.6,false);
 
-    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
+    // 取出当前帧从世界坐标系到相机坐标系的变换矩阵
+    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation(); //当前相机的pose
     cv::Mat Rwc1 = Rcw1.t();
     cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
     cv::Mat Tcw1(3,4,CV_32F);
     Rcw1.copyTo(Tcw1.colRange(0,3));
     tcw1.copyTo(Tcw1.col(3));
+    // 得到当前关键帧（左目）光心在世界坐标系中的坐标
     cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
-
+    // 内参
     const float &fx1 = mpCurrentKeyFrame->fx;
     const float &fy1 = mpCurrentKeyFrame->fy;
     const float &cx1 = mpCurrentKeyFrame->cx;
@@ -233,11 +307,14 @@ void LocalMapping::CreateNewMapPoints()
     const float &invfx1 = mpCurrentKeyFrame->invfx;
     const float &invfy1 = mpCurrentKeyFrame->invfy;
 
+    // 用于后面的点深度的验证，这里的1.5是经验值
     const float ratioFactor = 1.5f*mpCurrentKeyFrame->mfScaleFactor;
 
+    //记录三角化成功的地图点
     int nnew=0;
 
     // Search matches with epipolar restriction and triangulate
+    // 遍历相邻关键帧，搜索匹配并用极线约束剔除误匹配，最终三角化
     for(size_t i=0; i<vpNeighKFs.size(); i++)
     {
         if(i>0 && CheckNewKeyFrames())
@@ -247,16 +324,22 @@ void LocalMapping::CreateNewMapPoints()
 
         // Check first that baseline is not too short
         cv::Mat Ow2 = pKF2->GetCameraCenter();
+        //相邻关键帧光心在世界的坐标
         cv::Mat vBaseline = Ow2-Ow1;
+        //基线向量，两个关键帧之间的相机位移
         const float baseline = cv::norm(vBaseline);
 
         if(!mbMonocular)
         {
+            //如果是双目相机，关键帧之间的位移，小于本身的基线距离不生成3D点
+            //因为太短的基线下能够恢复的地图点不太稳定
             if(baseline<pKF2->mb)
             continue;
         }
         else
         {
+            //单目相机的情况
+            //相邻关键帧的场景深度中值
             const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
             const float ratioBaselineDepth = baseline/medianDepthKF2;
 

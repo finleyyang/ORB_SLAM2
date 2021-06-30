@@ -141,8 +141,8 @@ protected:
      KeyFrame* mpRefKF;
 
      // Tracking counters
-     int mnVisible;
-     int mnFound;
+     int mnVisible;   //理论上观测到该地图点的帧数
+     int mnFound;    //实际观测到该地图点的帧数
 
      // Bad flag (we do not currently erase MapPoint from memory)
      bool mbBad;   //坏点标记

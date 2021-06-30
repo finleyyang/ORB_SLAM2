@@ -29,6 +29,11 @@
 
 #include <mutex>
 
+//1.从缓存队列里提取关键帧，处理关键帧
+//2.判断地图点是不是新创建的，如果是新创建的要进行判断是否是可靠
+//3.创建新地图点
+//4.局部BA优化
+//5.判断关键帧是否冗余
 
 namespace ORB_SLAM2
 {
@@ -49,7 +54,7 @@ public:
     // Main function
     void Run();
 
-    void InsertKeyFrame(KeyFrame* pKF);
+    void InsertKeyFrame(KeyFrame* pKF);          //向缓冲队列内插入关键帧
 
     // Thread Synch
     void RequestStop();
@@ -58,8 +63,8 @@ public:
     void Release();
     bool isStopped();
     bool stopRequested();
-    bool AcceptKeyFrames();
-    void SetAcceptKeyFrames(bool flag);
+    bool AcceptKeyFrames();                    //mbAcceptKeyFrames的get方法
+    void SetAcceptKeyFrames(bool flag);        //mbAcceptKeyFrames的set方法
     bool SetNotStop(bool flag);
 
     void InterruptBA();
@@ -70,11 +75,11 @@ public:
     int KeyframesInQueue(){
         unique_lock<std::mutex> lock(mMutexNewKFs);
         return mlNewKeyFrames.size();
-    }
+    }                          //查看缓冲队列内关键帧的数量
 
 protected:
 
-    bool CheckNewKeyFrames();
+    bool CheckNewKeyFrames();           //查看缓冲队列mlNewKeyFrames内是否有待处理的新关键帧
     void ProcessNewKeyFrame();
     void CreateNewMapPoints();
 
@@ -105,7 +110,7 @@ protected:
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
 
-    std::list<KeyFrame*> mlNewKeyFrames;
+    std::list<KeyFrame*> mlNewKeyFrames;  //Tracking线程向LocalMapping线程插入关键帧的缓冲队列
 
     KeyFrame* mpCurrentKeyFrame;
 
@@ -120,10 +125,12 @@ protected:
     bool mbNotStop;
     std::mutex mMutexStop;
 
-    bool mbAcceptKeyFrames;
+    bool mbAcceptKeyFrames;             //LocalMapping线程是否愿意接受Tracking线程传来的新关键帧
     std::mutex mMutexAccept;
 };
 
 } //namespace ORB_SLAM
+
+//mbAcceptKeyFrames只是参考条件之一
 
 #endif // LOCALMAPPING_H

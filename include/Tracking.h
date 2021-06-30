@@ -151,12 +151,21 @@ protected:
 
     bool Relocalization();
 
-    void UpdateLocalMap();
+    void UpdateLocalMap();                                 //更新局部地图
     void UpdateLocalPoints();
     void UpdateLocalKeyFrames();
 
-    bool TrackLocalMap();
-    void SearchLocalPoints();
+    bool TrackLocalMap();                                    //更新局部地图并优化当前位姿
+    void SearchLocalPoints();                                 //将局部地图点投影到当前帧特征点上
+
+    //成功估计当前帧的初始位姿后，基于当前位姿更新局部地图，并优化当前帧位姿，主要流程：
+    //1.更新局部地图，包括局部关键帧列表std::vector<KeyFrame*> mvpLocalKeyFrames和局部地图点列表std::vector<MapPoint*> mvpLocalMapPoints
+    //2.将局部地图投影到当前帧特征点上
+    //3.进行位姿BA，优化当前位姿
+    //4.更新地图点的观测数值，统计内点个数
+    //这里的地图点观测数值会被当作LocalMapping线程中LocalMapping::MapPointCulling()函数剔除坏的点的标准之一；
+    //5.根据内点数来判断是否跟踪成功
+
 
     bool NeedNewKeyFrame();
     void CreateNewKeyFrame();
@@ -184,6 +193,14 @@ protected:
 
     //Local Map
     KeyFrame* mpReferenceKF;       //参考关键帧，初始化成功的帧就会被设为关键参考帧
+
+    //参考关键帧的用途:
+    //1.Tracking线程中函数Tracking::TrackReferenKeyFrame()根据参考帧估计初始位姿
+    //2.用于初始化创建的MapPoint的参考帧mpRefKF，函数MapPoint::UpdateNormalAndDepth()中根据参考帧mpRefKF更新地图点的平局观测距离
+    //参考关键帧的指定:
+    //1.Tracking线程中函数Tracking::CreateNewKeyFrame()创建完关键帧后，会将新创建的关键帧作为参考帧
+    //2.Tracking线程中函数Tracking::TrackLocalMap()跟踪局部地图过程中调用函数Tracking::UpdateLocalMap()，其中调用函数Tracking::UpdateLocalKeyFrame()，将与当前关键帧共视程度最高的关键帧设为参考关键帧
+
     std::vector<KeyFrame*> mvpLocalKeyFrames;      //局部关键帧列表，初始化成功后向其中添加局部关键帧
     std::vector<MapPoint*> mvpLocalMapPoints;      //局部地图点列表，初始化成功后向其中添加局部地图点
     
