@@ -637,6 +637,7 @@ void Frame::ComputeStereoMatches()
 
             float disparity = (uL-bestuR);
 
+
             if(disparity>=minD && disparity<maxD)
             {
                 if(disparity<=0)

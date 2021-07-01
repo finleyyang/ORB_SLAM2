@@ -67,9 +67,18 @@ public:
     //(实际上这里是处理Tracking线程中函数Tracking::CreateNewKeyFrame()创建的关键帧)
     //LocalMapping线程处理完毕缓冲队列内所有关键帧后会调用LocalMapping::SearchInNeighbours()融合当前关键帧和共视关键帧间的重复地图点之后会调用KeyFrame::UpdateConnects()更新共视图信息
     //LoopClosing线程闭环矫正函数LoopCLosing::CorrectLoop()会多次调用KeyFrame::UpdateConnections()更新共视图信息
+
+
     void UpdateBestCovisibles();             //基于共视图信息修改对应变量
      //get方法
+     /**
+      * @brief 得到与该关键帧连接的关键帧(没有排序的)
+      * @return 连接的关键帧
+      */
     std::set<KeyFrame *> GetConnectedKeyFrames();
+
+
+
     std::vector<KeyFrame* > GetVectorCovisibleKeyFrames();
     std::vector<KeyFrame*> GetBestCovisibilityKeyFrames(const int &N);
     std::vector<KeyFrame*> GetCovisiblesByWeight(const int &w);
@@ -220,7 +229,7 @@ protected:
     // SE3 Pose and camera center
     cv::Mat Tcw;
     cv::Mat Twc;
-    cv::Mat Ow;
+    cv::Mat Ow;  //相机光心坐标
 
     cv::Mat Cw; // Stereo middel point. Only for visualization
 

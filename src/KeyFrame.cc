@@ -645,6 +645,7 @@ bool KeyFrame::IsInImage(const float &x, const float &y) const
 
 cv::Mat KeyFrame::UnprojectStereo(int i)
 {
+    // 双目，求深度
     const float z = mvDepth[i];
     if(z>0)
     {

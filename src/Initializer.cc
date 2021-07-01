@@ -824,11 +824,43 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
 
     return false;
 }
-
-
+/** 给定投影矩阵P1,P2和图像上的匹配特征点点kp1,kp2，从而计算三维点坐标
+ * @brief
+ *
+ * @param[in] kp1               特征点, in reference frame
+ * @param[in] kp2               特征点, in current frame
+ * @param[in] P1                投影矩阵P1
+ * @param[in] P2                投影矩阵P2
+ * @param[in & out] x3D         计算的三维点
+ */
 
 void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &P1, const cv::Mat &P2, cv::Mat &x3D)
 {
+    // 原理
+    // Trianularization: 已知匹配特征点对{x x'} 和 各自相机矩阵{P P'}, 估计三维点 X
+    // x' = P'X  x = PX
+    // 它们都属于 x = aPX模型
+    //                         |X|
+    // |x|     |p1 p2  p3  p4 ||Y|     |x|    |--p0--||.|
+    // |y| = a |p5 p6  p7  p8 ||Z| ===>|y| = a|--p1--||X|
+    // |z|     |p9 p10 p11 p12||1|     |z|    |--p2--||.|
+    // 采用DLT的方法：x叉乘PX = 0
+    // |yp2 -  p1|     |0|
+    // |p0 -  xp2| X = |0|
+    // |xp1 - yp0|     |0|
+    // 两个点:
+    // |yp2   -  p1  |     |0|
+    // |p0    -  xp2 | X = |0| ===> AX = 0
+    // |y'p2' -  p1' |     |0|
+    // |p0'   - x'p2'|     |0|
+    // 变成程序中的形式：
+    // |xp2  - p0 |     |0|
+    // |yp2  - p1 | X = |0| ===> AX = 0
+    // |x'p2'- p0'|     |0|
+    // |y'p2'- p1'|     |0|
+    // 然后就组成了一个四元一次正定方程组，SVD求解，右奇异矩阵的最后一行就是最终的解.
+
+    // 参考https://zhuanlan.zhihu.com/p/63179478
     cv::Mat A(4,4,CV_32F);
 
     A.row(0) = kp1.pt.x*P1.row(2)-P1.row(0);

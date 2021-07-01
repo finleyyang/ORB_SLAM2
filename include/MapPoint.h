@@ -104,7 +104,7 @@ public:
 
     // Variables used by local mapping
     long unsigned int mnBALocalForKF;
-    long unsigned int mnFuseCandidateForKF;
+    long unsigned int mnFuseCandidateForKF;  //该地图点融合的关键帧
 
     // Variables used by loop closing
     long unsigned int mnLoopPointForKF;

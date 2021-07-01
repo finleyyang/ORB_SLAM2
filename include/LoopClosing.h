@@ -45,7 +45,9 @@ class LoopClosing
 {
 public:
 
-    typedef pair<set<KeyFrame*>,int> ConsistentGroup;    
+    typedef pair<set<KeyFrame*>,int> ConsistentGroup;
+    // 第一个变量表示一组关键帧，第二个变量表示该关键帧组的连续长度
+
 //    typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
 //        Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > > KeyFrameAndPose;
 
@@ -125,7 +127,7 @@ protected:
     // Loop detector variables
     KeyFrame* mpCurrentKF;
     KeyFrame* mpMatchedKF;
-    std::vector<ConsistentGroup> mvConsistentGroups;
+    std::vector<ConsistentGroup> mvConsistentGroups;  //上一次执行的时候产生的连续组s
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
     std::vector<KeyFrame*> mvpCurrentConnectedKFs;
     std::vector<MapPoint*> mvpCurrentMatchedPoints;
