@@ -1701,8 +1701,12 @@ void Tracking::UpdateLocalKeyFrames()
             }
         }
 
+        // Spanning Tree 的应用1
+
         //不明白为什么每一帧的孩子帧和父亲帧只添加一帧？？？？
         //共视关键帧有共视强度的排序，所有能明白只添加第一帧，孩子帧和父亲帧呢？？
+
+        //父亲帧和孩子帧理论上也是共视程度最高的帧
 
         //将一级关键帧的孩子帧的第一帧加入到局部关键帧中
         const set<KeyFrame*> spChilds = pKF->GetChilds();
@@ -1721,6 +1725,7 @@ void Tracking::UpdateLocalKeyFrames()
         }
 
         //将一级关键帧的父亲帧的第一帧加入到局部关键帧中
+        // 跳出大循环？？？
         KeyFrame* pParent = pKF->GetParent();
         if(pParent)
         {

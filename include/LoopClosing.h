@@ -125,14 +125,14 @@ protected:
     float mnCovisibilityConsistencyTh;
 
     // Loop detector variables
-    KeyFrame* mpCurrentKF;
-    KeyFrame* mpMatchedKF;
-    std::vector<ConsistentGroup> mvConsistentGroups;  //上一次执行的时候产生的连续组s
-    std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
-    std::vector<KeyFrame*> mvpCurrentConnectedKFs;
-    std::vector<MapPoint*> mvpCurrentMatchedPoints;
-    std::vector<MapPoint*> mvpLoopMapPoints;
-    cv::Mat mScw;
+    KeyFrame* mpCurrentKF;                                //当前关键帧
+    KeyFrame* mpMatchedKF;                                //当前关键帧的闭环匹配关键帧
+    std::vector<ConsistentGroup> mvConsistentGroups;      //上一次执行的时候产生的连续组s（关键帧的闭环候选关键帧组）
+    std::vector<KeyFrame*> mvpEnoughConsistentCandidates;   //所有达到足够连续数的关键帧
+    std::vector<KeyFrame*> mvpCurrentConnectedKFs; //当前关键帧的共视关键帧
+    std::vector<MapPoint*> mvpCurrentMatchedPoints; // 变量中存储的地图点在"当前关键帧"中成功地找到了匹配点的地图点的集合
+    std::vector<MapPoint*> mvpLoopMapPoints;   //闭环关键帧中的地图点
+    cv::Mat mScw;                           //世界坐标系w到相机坐标系x的Sim3变换
     g2o::Sim3 mg2oScw;
 
     long unsigned int mLastLoopKFid;

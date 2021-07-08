@@ -42,7 +42,7 @@ g2o::SE3Quat Converter::toSE3Quat(const cv::Mat &cvT)
          cvT.at<float>(2,0), cvT.at<float>(2,1), cvT.at<float>(2,2);
 
     Eigen::Matrix<double,3,1> t(cvT.at<float>(0,3), cvT.at<float>(1,3), cvT.at<float>(2,3));
-
+    //用四元数表示SE3
     return g2o::SE3Quat(R,t);
 }
 

@@ -294,8 +294,8 @@ void LocalMapping::MapPointCulling()
 void LocalMapping::CreateNewMapPoints()
 {
     // Retrieve neighbor keyframes in covisibility graph
-    //nn表示搜索最佳共视关键帧的数目
-    //不同传感器要求不一样，单目的时候需要更多的具有较好共视关系的关键帧来建立地图
+    // nn表示搜索最佳共视关键帧的数目
+    // 不同传感器要求不一样，单目的时候需要更多的具有较好共视关系的关键帧来建立地图
     int nn = 10;
     if(mbMonocular)
         nn=20;
@@ -306,10 +306,10 @@ void LocalMapping::CreateNewMapPoints()
     ORBmatcher matcher(0.6,false);
 
     // 取出当前帧从世界坐标系到相机坐标系的变换矩阵
-    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation(); //当前相机的pose
+    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation(); //当前相机旋转的pose
     cv::Mat Rwc1 = Rcw1.t();
-    cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
-    cv::Mat Tcw1(3,4,CV_32F);
+    cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();   //当前相机的平移pose
+    cv::Mat Tcw1(3,4,CV_32F);   //当前相机的pose
     Rcw1.copyTo(Tcw1.colRange(0,3));
     tcw1.copyTo(Tcw1.col(3));
     // 得到当前关键帧（左目）光心在世界坐标系中的坐标
@@ -744,6 +744,7 @@ void LocalMapping::SearchInNeighbors()
 
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
 {
+    //F=K.t.inv*t^*R*K.inv
     cv::Mat R1w = pKF1->GetRotation();
     cv::Mat t1w = pKF1->GetTranslation();
     cv::Mat R2w = pKF2->GetRotation();
@@ -751,6 +752,11 @@ cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
 
     cv::Mat R12 = R1w*R2w.t();
     cv::Mat t12 = -R1w*R2w.t()*t2w+t1w;
+    // 关键帧1的坐标 R1w*Ow + t1w
+    // 关键帧2的坐标 R2w*Ow + t2w
+    // 则从关键帧2算关键帧1的坐标 R1w*Ow + t1w = R12*(R2w*Ow + t2w) + t12;
+    // t12 = t1w - R12*t2w
+    // t12 = -R1w*R2w.t()*t2w+t1w
 
     cv::Mat t12x = SkewSymmetricMatrix(t12);
 

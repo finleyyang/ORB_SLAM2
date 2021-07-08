@@ -291,9 +291,11 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
     return mvpMapPoints[idx];
 }
 
+
+// 更新共视关系
 void KeyFrame::UpdateConnections()
 {
-    map<KeyFrame*,int> KFcounter;
+    map<KeyFrame*,int> KFcounter;  //关键帧-权重，权重为其它关键帧与当前关键帧共视3d点的个数
 
     //1.通过遍历当前地图点获取与其他关键帧的共视程度，存入变量KFcounter中
     vector<MapPoint*> vpMP;
@@ -322,7 +324,10 @@ void KeyFrame::UpdateConnections()
         {
             if(mit->first->mnId==mnId)  //与当前帧不算共视
                 continue;
-            KFcounter[mit->first]++;  //查看有多少帧与该帧共视，如果共视，则加一
+            // map[key] = value, 当要插入的键存在，会覆盖原来的值，如果不存在，则添加一组键值对
+            // mit->first 是地图点对应的关键帧，同一个关键帧看到的地图点会累加到该关键帧计数
+            // 所以最后KFcounter是第一个参数表示与当前帧的共视关键帧，第二个参数表示该帧看到了关键帧多少个地图点，也就是共视程度
+            KFcounter[mit->first]++;
         }
     }
 
@@ -338,6 +343,7 @@ void KeyFrame::UpdateConnections()
     int th = 15;
 
     vector<pair<int,KeyFrame*> > vPairs;
+    // 第一位是共视点的数目，第二位是关键帧
     vPairs.reserve(KFcounter.size());
     for(map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend; mit++)
     {
@@ -349,21 +355,26 @@ void KeyFrame::UpdateConnections()
         if(mit->second>=th)
         {
             vPairs.push_back(make_pair(mit->second,mit->first));
+            // 对方关键帧也要知道这个信息
+            // 更新KFcounter中该关键帧的mConnectedKeyFrameWeights
+            // 更新其他KeyFrame的mConnectedKeyFrameWeights
             (mit->first)->AddConnection(this,mit->second);
         }
     }
 
+    // 如果没有连接到关键帧(超过阀值的权重)，则对权重最大的关键帧建立连接
     if(vPairs.empty())
     {
         vPairs.push_back(make_pair(nmax,pKFmax));
         pKFmax->AddConnection(this,nmax);
     }
-    //3.对关键帧按照共视权重排序，存入变量mvpOrderedConnectedKeyFrames和mvOrderedWe
+    // 对关键帧按照共视权重排序，存入变量mvpOrderedConnectedKeyFrames和mvOrderedWe
     sort(vPairs.begin(),vPairs.end());
     list<KeyFrame*> lKFs;
     list<int> lWs;
     for(size_t i=0; i<vPairs.size();i++)
     {
+        // push_front从大到小排列
         lKFs.push_front(vPairs[i].second);
         lWs.push_front(vPairs[i].first);
     }
@@ -372,11 +383,14 @@ void KeyFrame::UpdateConnections()
         unique_lock<mutex> lockCon(mMutexConnections);
 
         // mspConnectedKeyFrames = spConnectedKeyFrames;
+        // 更新当前帧与其他关键帧的连接权重
         mConnectedKeyFrameWeights = KFcounter;
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-        //对于第一次加入生成树的关键帧，取共视程度最高的关键帧为父关键帧
+        // 对于第一次加入生成树的关键帧，取共视程度最高的关键帧为父关键帧
+
+        // 最早生成树的连接关系
         if(mbFirstConnection && mnId!=0)
         {
             mpParent = mvpOrderedConnectedKeyFrames.front();
