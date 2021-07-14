@@ -63,37 +63,49 @@ using namespace std;
 namespace ORB_SLAM2
 {
 
+    //PnP求解器只在track中调用
 
+    // 在大体的pipeline上和Sim3Solver差不多,都是 构造->设置RANSAC参数->外部调用迭代函数,进行计算->得到计算的结果
+
+// pcs表示3D点在camera坐标系下的坐标
+// pws表示3D点在世界坐标系下的坐标
+// us表示图像坐标系下的2D点坐标
+// alphas为真实3D点用4个虚拟控制点表达时的系数
+// 构造函数
 PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches):
     pws(0), us(0), alphas(0), pcs(0), maximum_number_of_correspondences(0), number_of_correspondences(0), mnInliersi(0),
     mnIterations(0), mnBestInliers(0), N(0)
 {
-    mvpMapPointMatches = vpMapPointMatches;
-    mvP2D.reserve(F.mvpMapPoints.size());
-    mvSigma2.reserve(F.mvpMapPoints.size());
-    mvP3Dw.reserve(F.mvpMapPoints.size());
-    mvKeyPointIndices.reserve(F.mvpMapPoints.size());
-    mvAllIndices.reserve(F.mvpMapPoints.size());
+    // 根据点数初始化容器的大小
+    mvpMapPointMatches = vpMapPointMatches;             //匹配关系
+    mvP2D.reserve(F.mvpMapPoints.size());               //2D特征点
+    mvSigma2.reserve(F.mvpMapPoints.size());            //特征点金字塔层级
+    mvP3Dw.reserve(F.mvpMapPoints.size());              //世界坐标系下的3D点
+    mvKeyPointIndices.reserve(F.mvpMapPoints.size());   //记录被使用特征点在原始特征点容器中的索引，因为有些3D点不一定存在，所以索引是不连续的
+    mvAllIndices.reserve(F.mvpMapPoints.size());        //记录被使用特征点的索引，是连续的
 
+    // 生成地图点、对应2D特征点，记录一些索引坐标
     int idx=0;
+
+    // 遍历给出每一个地图点
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
-        MapPoint* pMP = vpMapPointMatches[i];
+        MapPoint* pMP = vpMapPointMatches[i];// 依次获取每个地图点
 
         if(pMP)
         {
             if(!pMP->isBad())
             {
-                const cv::KeyPoint &kp = F.mvKeysUn[i];
+                const cv::KeyPoint &kp = F.mvKeysUn[i];//得到2维特征点, 将KeyPoint类型变为Point2f
 
-                mvP2D.push_back(kp.pt);
-                mvSigma2.push_back(F.mvLevelSigma2[kp.octave]);
+                mvP2D.push_back(kp.pt); //存放2维特征点
+                mvSigma2.push_back(F.mvLevelSigma2[kp.octave]); //记录特征点是在哪一层取出来的
 
-                cv::Mat Pos = pMP->GetWorldPos();
+                cv::Mat Pos = pMP->GetWorldPos();  //世界坐标系下的3D点
                 mvP3Dw.push_back(cv::Point3f(Pos.at<float>(0),Pos.at<float>(1), Pos.at<float>(2)));
 
-                mvKeyPointIndices.push_back(i);
-                mvAllIndices.push_back(idx);               
+                mvKeyPointIndices.push_back(i);  //记录被使用特征点在原始特征点容器中的索引, mvKeyPointIndices是跳跃的
+                mvAllIndices.push_back(idx);        //记录被使用特征点的索引, mvAllIndices是连续的
 
                 idx++;
             }
@@ -106,7 +118,7 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
     uc = F.cx;
     vc = F.cy;
 
-    SetRansacParameters();
+    SetRansacParameters(); //????为什么这边重新调用了一次
 }
 
 PnPsolver::~PnPsolver()
@@ -117,6 +129,15 @@ PnPsolver::~PnPsolver()
   delete [] pcs;
 }
 
+/**
+ * @brief 设置RANSAC迭代的参数
+ * @param[in] probability       用于计算RANSAC理论迭代次数所用的概率
+ * @param[in] minInliers        退出RANSAC所需要的最小内点个数, 注意这个只是给定值,最终迭代的时候不一定按照这个来
+ * @param[in] maxIterations     设定的最大RANSAC迭代次数
+ * @param[in] minSet            表示求解这个问题所需要的最小的样本数目,简称最小集;参与到最小内点数的确定过程中，默认是4
+ * @param[in] epsilon           希望得到的 内点数/总体数 的比值,参与到最小内点数的确定过程中
+ * @param[in] th2               内外点判定时的距离的baseline(程序中还会根据特征点所在的图层对这个阈值进行缩放的)
+ */
 
 void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxIterations, int minSet, float epsilon, float th2)
 {
@@ -126,6 +147,7 @@ void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxI
     mRansacEpsilon = epsilon;
     mRansacMinSet = minSet;
 
+    //计算理论内点数,并且选 min(给定内点数,最小集,理论内点数) 作为最终在迭代过程中使用的最小内点数
     N = mvP2D.size(); // number of correspondences
 
     mvbInliersi.resize(N);

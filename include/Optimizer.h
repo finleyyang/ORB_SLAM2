@@ -168,7 +168,7 @@ public:
      * @param vpMatches1  两个关键帧的匹配关系
      * @param g2oS12      两个关键帧间的Sim3变换
      * @param th2         核函数阈值
-     * @param bFixScale   是否优化尺度，弹目进行尺度优化，双目不进行尺度优化
+     * @param bFixScale   是否优化尺度，单目进行尺度优化，双目不进行尺度优化
      */
     static int OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, std::vector<MapPoint *> &vpMatches1,
                             g2o::Sim3 &g2oS12, const float th2, const bool bFixScale);

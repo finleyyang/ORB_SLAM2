@@ -716,6 +716,7 @@ void LoopClosing::CorrectLoop()
             g2o::Sim3 g2oSiw(Converter::toMatrix3d(Riw),Converter::toVector3d(tiw),1.0);
             // Pose without correction
             // 存放没有矫正的当前关键帧的共视关键帧的Sim3变换
+            // 只有一帧 ？？？
             NonCorrectedSim3[pKFi]=g2oSiw;
         }
 
@@ -812,7 +813,6 @@ void LoopClosing::CorrectLoop()
                 }
             }
         }
-
     }
 
     // Project MapPoints observed in the neighborhood of the loop keyframe
