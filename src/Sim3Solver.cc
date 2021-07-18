@@ -33,17 +33,27 @@
 namespace ORB_SLAM2
 {
 
+ /**
+ * @brief Sim 3 Solver 构造函数
+ * @param[in] pKF1              当前关键帧
+ * @param[in] pKF2              候选的闭环关键帧
+ * @param[in] vpMatched12       通过词袋模型加速匹配所得到的,两帧特征点的匹配关系所得到的地图点,本质上是来自于候选闭环关键帧的地图点
+ * @param[in] bFixScale         当前传感器类型的输入需不需要计算尺度。单目的时候需要，双目和RGBD的时候就不需要了
+ */
 
 Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> &vpMatched12, const bool bFixScale):
     mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale)
 {
-    mpKF1 = pKF1;
-    mpKF2 = pKF2;
+    mpKF1 = pKF1;   //当前关键帧
+    mpKF2 = pKF2;   //闭环关键帧
 
+    //取出当前帧中的所有地图点
     vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
 
+    //最多匹配的地图点
     mN1 = vpMatched12.size();
 
+    //预分配空间
     mvpMapPoints1.reserve(mN1);
     mvpMapPoints2.reserve(mN1);
     mvpMatches12 = vpMatched12;
@@ -51,6 +61,7 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
     mvX3Dc1.reserve(mN1);
     mvX3Dc2.reserve(mN1);
 
+    //获得两帧关键帧的位姿
     cv::Mat Rcw1 = pKF1->GetRotation();
     cv::Mat tcw1 = pKF1->GetTranslation();
     cv::Mat Rcw2 = pKF2->GetRotation();
@@ -59,10 +70,13 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
     mvAllIndices.reserve(mN1);
 
     size_t idx=0;
+    //记录匹配地图点的各种信息
     for(int i1=0; i1<mN1; i1++)
     {
+        //如果该特征点在pKF1中有匹配
         if(vpMatched12[i1])
         {
+            //pMP1和pMP2是匹配的point
             MapPoint* pMP1 = vpKeyFrameMP1[i1];
             MapPoint* pMP2 = vpMatched12[i1];
 
@@ -72,31 +86,40 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
             if(pMP1->isBad() || pMP2->isBad())
                 continue;
 
+            //获取pMP1和pMP2在关键帧中的索引
             int indexKF1 = pMP1->GetIndexInKeyFrame(pKF1);
             int indexKF2 = pMP2->GetIndexInKeyFrame(pKF2);
 
             if(indexKF1<0 || indexKF2<0)
                 continue;
 
+            
+            // indexKF1和indexKF2是匹配特征点的索引
             const cv::KeyPoint &kp1 = pKF1->mvKeysUn[indexKF1];
             const cv::KeyPoint &kp2 = pKF2->mvKeysUn[indexKF2];
 
+            //提取特征点所在的图层的尺度因子的平方
             const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
             const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
 
+            // 自由度为2的卡方分布，显著性水平为0.01，对应的临界阈值为9.21
             mvnMaxError1.push_back(9.210*sigmaSquare1);
             mvnMaxError2.push_back(9.210*sigmaSquare2);
 
+            // mvpMapPoints1和mvpMapPoints2是匹配的MapPoints容器
             mvpMapPoints1.push_back(pMP1);
             mvpMapPoints2.push_back(pMP2);
             mvnIndices1.push_back(i1);
 
+            //P点的相机坐标是R*Pw+t，坐标变换，不是位姿变换，没有朝向
+            //关键帧在相机1的位姿，关键帧在相机2的位姿
             cv::Mat X3D1w = pMP1->GetWorldPos();
             mvX3Dc1.push_back(Rcw1*X3D1w+tcw1);
 
             cv::Mat X3D2w = pMP2->GetWorldPos();
             mvX3Dc2.push_back(Rcw2*X3D2w+tcw2);
 
+            //所有有效三维点的索引
             mvAllIndices.push_back(idx);
             idx++;
         }
@@ -105,61 +128,105 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
     mK1 = pKF1->mK;
     mK2 = pKF2->mK;
 
+    //三维点在二维平面的位置
     FromCameraToImage(mvX3Dc1,mvP1im1,mK1);
     FromCameraToImage(mvX3Dc2,mvP2im2,mK2);
 
     SetRansacParameters();
 }
 
+/**
+ * @brief 设置进行RANSAC时的参数
+ * 
+ * @param[in] probability           当前这些匹配点的置信度，也就是一次采样恰好都是内点的概率
+ * @param[in] minInliers            完成RANSAC所需要的最少内点个数
+ * @param[in] maxIterations         设定的最大迭代次数
+ */
+
 void Sim3Solver::SetRansacParameters(double probability, int minInliers, int maxIterations)
 {
-    mRansacProb = probability;
-    mRansacMinInliers = minInliers;
-    mRansacMaxIts = maxIterations;    
+    mRansacProb = probability;   //0.99
+    mRansacMinInliers = minInliers;  //20
+    mRansacMaxIts = maxIterations;    //最大迭代次数 300
 
+    //匹配点的数量
     N = mvpMapPoints1.size(); // number of correspondences
 
+    //内点的标记向量
     mvbInliersi.resize(N);
 
     // Adjust Parameters according to number of correspondences
     float epsilon = (float)mRansacMinInliers/N;
 
     // Set RANSAC iterations according to probability, epsilon, and max iterations
+    // 计算迭代次数的理论值，也就是经过这么多次采样，其中至少有一次采样中,三对点都是内点
+    // epsilon 表示了在这 N 对匹配点中,我随便抽取一对点是内点的概率; 
+    // 为了计算Sim3,我们需要从这N对匹配点中取三对点;那么如果我有放回的从这些点中抽取三对点,取这三对点均为内点的概率是 p0=epsilon^3
+    // 相应地,如果取三对点中至少存在一对匹配点是外点, 概率为p1=1-p0
+    // 当我们进行K次采样的时候,其中每一次采样中三对点中都存在至少一对外点的概率就是p2=p1^k
+    // K次采样中,至少有一次采样中三对点都是内点的概率是p=1-p2
+    // 候根据 p2=p1^K 我们就可以导出 K 的公式：K = log(p2)/log(p1)=log(1-p)/log(1-pow(e, 3))
+    // 也就是说，我们进行K次采样,其中至少有一次采样中,三对点都是内点; 因此我们就得到了RANSAC迭代次数的理论值
     int nIterations;
 
     if(mRansacMinInliers==N)
-        nIterations=1;
+        nIterations=1; // 这种情况的时候最后计算得到的迭代次数的确就是一次
     else
         nIterations = ceil(log(1-mRansacProb)/log(1-pow(epsilon,3)));
 
+    // 外层的max保证RANSAC能够最少迭代一次;
+    // 内层的min的目的是,如果理论值比给定值要小,那么我们优先选择使用较少的理论值来节省时间(其实也有极大概率得到能够达到的最好结果);
+    // 如果理论值比给定值要大,那么我们也还是有限选择使用较少的给定值来节省时间
     mRansacMaxIts = max(1,min(nIterations,mRansacMaxIts));
 
+    //当前的迭代次数
     mnIterations = 0;
 }
 
+
+/**
+ * @brief Ransac求解mvX3Dc1和mvX3Dc2之间Sim3，函数返回mvX3Dc2到mvX3Dc1的Sim3变换
+ * 
+ * @param[in] nIterations           设置的最大迭代次数
+ * @param[in] bNoMore               为true表示穷尽迭代还没有找到好的结果，说明求解失败
+ * @param[in] vbInliers             标记是否是内点
+ * @param[in] nInliers              内点数目
+ * @return cv::Mat                  计算得到的Sim3矩阵
+ */
+
 cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers)
 {
-    bNoMore = false;
-    vbInliers = vector<bool>(mN1,false);
-    nInliers=0;
+    bNoMore = false;            // 现在还没有达到最好的效果
+    vbInliers = vector<bool>(mN1,false);        // 的确和最初传递给这个解算器的地图点向量是保持一致
+    nInliers=0;                 // 存储迭代过程中得到的内点个数
 
+    // 如果匹配点比要求的最少内点数还少，不满足Sim3 求解条件，返回空
+    // mRansacMinInliers 表示RANSAC所需要的最少内点数目
     if(N<mRansacMinInliers)
     {
-        bNoMore = true;
+        bNoMore = true;     //表示求解失败
         return cv::Mat();
     }
 
+    // 可以使用的点对的索引,为了避免重复使用
     vector<size_t> vAvailableIndices;
 
+    // 随机选择的来自于这两个帧的三对匹配点
     cv::Mat P3Dc1i(3,3,CV_32F);
     cv::Mat P3Dc2i(3,3,CV_32F);
 
+    
+    // Step 2 随机选择三个点，用于求解后面的Sim3
+    // 条件1: 已经进行的总迭代次数还没有超过限制的最大总迭代次数
+    // 条件2: 当前迭代次数还没有超过理论迭代次数
     int nCurrentIterations = 0;
     while(mnIterations<mRansacMaxIts && nCurrentIterations<nIterations)
     {
+        // 这个函数中迭代的次数
         nCurrentIterations++;
+        // 总的迭代次数，默认为最大为300
         mnIterations++;
-
+        // 记录所有有效（可以采样）的候选三维点索引
         vAvailableIndices = mvAllIndices;
 
         // Get min set of points
@@ -402,6 +469,14 @@ void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, cv
     }
 }
 
+/**
+ * @brief 计算当前关键帧中的地图点在当前关键帧图像上的投影坐标
+ * 
+ * @param[in] vP3Dc         相机坐标系下三维点坐标
+ * @param[in] vP2D          投影的二维图像坐标
+ * @param[in] K             内参矩阵
+ */
+
 void Sim3Solver::FromCameraToImage(const vector<cv::Mat> &vP3Dc, vector<cv::Mat> &vP2D, cv::Mat K)
 {
     const float &fx = K.at<float>(0,0);
@@ -412,6 +487,8 @@ void Sim3Solver::FromCameraToImage(const vector<cv::Mat> &vP3Dc, vector<cv::Mat>
     vP2D.clear();
     vP2D.reserve(vP3Dc.size());
 
+
+    //计算3D点在二维平面的位置
     for(size_t i=0, iend=vP3Dc.size(); i<iend; i++)
     {
         const float invz = 1/(vP3Dc[i].at<float>(2));

@@ -159,7 +159,7 @@ class PnPsolver {
    * @param[in] t 平移
    * @deprecated 在ORB中没有用到
    */
-  void print_pose(const double R[3][3], const double t[3]);
+    void print_pose(const double R[3][3], const double t[3]);
 
     /**
   * @brief 计算在给定位姿的时候的3D点投影误差
@@ -167,7 +167,7 @@ class PnPsolver {
   * @param[in] t      给定平移
   * @return double    重投影误差,是平均到每一对匹配点上的误差
   */
-  double reprojection_error(const double R[3][3], const double t[3]);
+    double reprojection_error(const double R[3][3], const double t[3]);
 
     /**
      * @brief 从给定的匹配点中计算出四个控制点
