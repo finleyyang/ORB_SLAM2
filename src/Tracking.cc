@@ -741,14 +741,14 @@ void Tracking::MonocularInitialization()
         }
 
         // Find correspondences
-        //进行初始化，在mInitialFrame（mLastFrame）和当前帧之间进行匹配搜索
+        // 进行初始化，在mInitialFrame（mLastFrame）和当前帧之间进行匹配搜索
         ORBmatcher matcher(0.9,true);
-        //只在周围的3X3网格里寻找相匹配的特征点
+        // 只在周围的3X3网格里寻找相匹配的特征点
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
         // Check if there are enough correspondences
 
-        //如果匹配的特征点数目太少，则匹配失败，删除初始化器
+        // 如果匹配的特征点数目太少，则匹配失败，删除初始化器
         if(nmatches<100)
         {
             delete mpInitializer;

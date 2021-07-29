@@ -302,7 +302,7 @@ void LocalMapping::CreateNewMapPoints()
     // 从当前关键帧中取出共视程度最好的nn帧相邻共视关键帧
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
-    //特征点匹配设置 最佳距离<0.6*最佳距离，比较严苛了，不检查旋转
+    //特征点匹配设置 最佳距离<0.6*次最佳距离，比较严苛了，不检查旋转
     ORBmatcher matcher(0.6,false);
 
     // 取出当前帧从世界坐标系到相机坐标系的变换矩阵

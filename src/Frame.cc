@@ -182,14 +182,28 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
 
 //单目模型
+/**
+ * @brief 单目帧构造函数
+ *
+ * @param[in] imGray                            //灰度图
+ * @param[in] timeStamp                         //时间戳
+ * @param[in & out] extractor                   //ORB特征点提取器的句柄
+ * @param[in] voc                               //ORB字典的句柄
+ * @param[in] K                                 //相机的内参数矩阵
+ * @param[in] distCoef                          //相机的去畸变参数
+ * @param[in] bf                                //baseline*f
+ * @param[in] thDepth                           //区分远近点的深度阈值
+ */
 Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
      mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
 {
     // Frame ID
+    // 帧的自增
     mnId=nNextId++;
 
     // Scale Level Info
+    //配置文件的参数，配置好
     mnScaleLevels = mpORBextractorLeft->GetLevels();
     mfScaleFactor = mpORBextractorLeft->GetScaleFactor();
     mfLogScaleFactor = log(mfScaleFactor);
@@ -257,11 +271,18 @@ void Frame::AssignFeaturesToGrid()
 
 void Frame::ExtractORB(int flag, const cv::Mat &im)
 {
+    //判断是左图还是右图
     if(flag==0)
         //flag==0,表示对左图提取ORB特征点
-        (*mpORBextractorLeft)(im,cv::Mat(),mvKeys,mDescriptors);
+        //左图的话就套用左图指定的特征点提取器，并将提取结果保存到对应的变量中
+        //这里使用了仿函数来完成，重载了括号运算符 ORBextractor::operator()
+        (*mpORBextractorLeft)(im,   //待提取特征点图像
+                cv::Mat(),      //掩摸图像，实际并没有使用
+                mvKeys,            //输出变量，用于保存提取后的特征点
+                mDescriptors);//输出变量，用于保运特征点的描述子
     else
         //flag==1，表示对右图提取ORB特征点
+        //右图的话就套用右图指定的特征点提取器，并将提取结果保存到对应的变量中
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
 }
 
@@ -337,19 +358,45 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
+/**
+ * @brief 找到在 以x,y为中心,半径为r的圆形内且金字塔层级在[minLevel, maxLevel]的特征点
+ *
+ * @param[in] x                     特征点坐标x
+ * @param[in] y                     特征点坐标y
+ * @param[in] r                     搜索半径
+ * @param[in] minLevel              最小金字塔层级
+ * @param[in] maxLevel              最大金字塔层级
+ * @return vector<size_t>           返回搜索到的候选匹配点id
+ */
+
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
+    //储存搜索结果的vector
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
+    // Step 1 计算半径为r圆左右上下边界所在的网格列和行的id
+    // 查找半径为r的圆左侧边界所在网格列坐标。这个地方有点绕，慢慢理解下：
+    // (mnMaxX-mnMinX)/FRAME_GRID_COLS：表示列方向每个网格可以平均分得几个像素（肯定大于1）
+    // mfGridElementWidthInv=FRAME_GRID_COLS/(mnMaxX-mnMinX) 是上面倒数，表示每个像素可以均分几个网格列（肯定小于1）
+    // (x-mnMinX-r)，可以看做是从图像的左边界mnMinX到半径r的圆的左边界区域占的像素列数
+    // x-mnMinX-r可以写成x-r-mnMinX
+    // 两者相乘，就是求出那个半径为r的圆的左侧边界在哪个网格列中
+    // 保证nMinCellX 结果大于等于0
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
+
+    // 如果最终求得的圆的左边界所在的网格列超过了设定了上限，那么就说明计算出错，找不到符合要求的特征点，返回空vector
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
 
+    // 计算圆所在的右边界网格列索引
+    // x-mnMinX+r可以看成x+r-mnMinX
     const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
     if(nMaxCellX<0)
+        // 如果计算出的圆右边界所在的网格不合法，说明该特征点不好，直接返回空vector
         return vIndices;
 
+    // 同理可求得上下边界所在的网格的iD
     const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));
     if(nMinCellY>=FRAME_GRID_ROWS)
         return vIndices;
@@ -358,12 +405,17 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     if(nMaxCellY<0)
         return vIndices;
 
+    // 检查需要搜索的图像金字塔层数范围是否符合要求
+    //? 疑似bug。(minLevel>0) 后面条件 (maxLevel>=0)肯定成立
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
+    //遍历圆形区域内的所有网格，寻找满足条件的候选特征点，并将其index放到输出里
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
+            // 获取这个网格内的所有特征点在 Frame::mvKeysUn 中的索引
+            //vCell 特征点的索引 mGrid 表示每个网格中的特征点索引
             const vector<size_t> vCell = mGrid[ix][iy];
             if(vCell.empty())
                 continue;
@@ -373,6 +425,8 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
                 if(bCheckLevels)
                 {
+                    // cv::KeyPoint::octave中表示的是从金字塔的哪一层提取的数据
+                    // 保证特征点是在金字塔层级minLevel和maxLevel之间，不是的话跳过
                     if(kpUn.octave<minLevel)
                         continue;
                     if(maxLevel>=0)
@@ -380,6 +434,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                             continue;
                 }
 
+                // 通过检查，计算候选特征点到圆中心的距离，查看是否是在这个圆形区域之内
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 

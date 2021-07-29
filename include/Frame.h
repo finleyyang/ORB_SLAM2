@@ -150,7 +150,7 @@ public:
     float mThDepth;        //判断单目特征点和双目特征点的阀值，深度低于该值的被认为是单目特征点或者是双目特征点
 
     // Number of KeyPoints.
-    int N;
+    int N;  //关键特征点点的数量
 
     // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
     // In the stereo case, mvKeysUn is redundant(多余的) as images must be rectified(改正的，整流的).

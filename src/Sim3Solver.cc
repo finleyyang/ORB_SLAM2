@@ -230,23 +230,31 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
         vAvailableIndices = mvAllIndices;
 
         // Get min set of points
+        // 随机取三组点，取完后从候选索引中删掉
         for(short i = 0; i < 3; ++i)
         {
+            // DBoW3中的随机数生成函数
             int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size()-1);
 
             int idx = vAvailableIndices[randi];
 
+            // P3Dc1i和P3Dc2i中点的排列顺序：
+            // x1 x2 x3 ...
+            // y1 y2 y3 ...
+            // z1 z2 z3 ...
             mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
             mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
 
+            // 从"可用索引列表"中删除这个点的索引 
             vAvailableIndices[randi] = vAvailableIndices.back();
             vAvailableIndices.pop_back();
         }
-
+        //计算相似变换
         ComputeSim3(P3Dc1i,P3Dc2i);
-
+        //对计算的Sim3变换，通过投影误差进行inlier检测
         CheckInliers();
 
+        // 记录并更新最多的内点数目及对应的参数
         if(mnInliersi>=mnBestInliers)
         {
             mvbBestInliers = mvbInliersi;
@@ -255,22 +263,25 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
             mBestRotation = mR12i.clone();
             mBestTranslation = mt12i.clone();
             mBestScale = ms12i;
-
+            // 只要计算得到一次合格的Sim变换，就直接返回
             if(mnInliersi>mRansacMinInliers)
             {
+                // 返回值,告知得到的内点数目
                 nInliers = mnInliersi;
                 for(int i=0; i<N; i++)
                     if(mvbInliersi[i])
+                        // 标记为内点
                         vbInliers[mvnIndices1[i]] = true;
                 return mBestT12;
-            }
-        }
-    }
+            } // 如果当前次迭代已经合格了,直接返回
+        } // 更新最多的内点数目
+    } // 迭代循环
 
+    // 如果已经达到了最大迭代次数了还没得到满足条件的Sim3，说明失败了，放弃，返回
     if(mnIterations>=mRansacMaxIts)
         bNoMore=true;
 
-    return cv::Mat();
+    return cv::Mat(); // no more的时候返回的是一个空矩阵
 }
 
 cv::Mat Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
@@ -279,16 +290,32 @@ cv::Mat Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
     return iterate(mRansacMaxIts,bFlag,vbInliers12,nInliers);
 }
 
+/**
+ * @brief 给出三个点,计算它们的质心以及去质心之后的坐标
+ *
+ * @param[in] P     输入的3D点
+ * @param[in] Pr    去质心后的点
+ * @param[in] C     质心
+ */
+
 void Sim3Solver::ComputeCentroid(cv::Mat &P, cv::Mat &Pr, cv::Mat &C)
 {
+    // 矩阵P每一行求和，结果存在C。这两句也可以使用CV_REDUCE_AVG选项来实现
     cv::reduce(P,C,1,CV_REDUCE_SUM);
+    // 求平均值
     C = C/P.cols;
 
     for(int i=0; i<P.cols; i++)
     {
-        Pr.col(i)=P.col(i)-C;
+       Pr.col(i)=P.col(i)-C;    //减去质心坐标
     }
 }
+
+/**
+ * @brief 根据两组匹配的3D点,计算P2到P1的Sim3变换
+ * @param[in] P1    匹配的3D点(三个,每个的坐标都是列向量形式,三个点组成了3x3的矩阵)(当前关键帧)
+ * @param[in] P2    匹配的3D点(闭环关键帧)
+ */
 
 void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
 {
@@ -296,6 +323,9 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
     // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
 
     // Step 1: Centroid and relative coordinates
+    // Step 1: 定义3D点质心及去质心后的点
+    // O1和O2分别为P1和P2矩阵中3D点的质心
+    // Pr1和Pr2为减去质心后的3D点
 
     cv::Mat Pr1(P1.size(),P1.type()); // Relative coordinates to centroid (set 1)
     cv::Mat Pr2(P2.size(),P2.type()); // Relative coordinates to centroid (set 2)
@@ -308,12 +338,19 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
     // Step 2: Compute M matrix
 
     cv::Mat M = Pr2*Pr1.t();
-
+    //     |Sxx Sxy Sxz|     
+    // M = |Syx Syy Syz|
+    //     |Szx Szy Szz|
     // Step 3: Compute N matrix
 
     double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
 
     cv::Mat N(4,4,P1.type());
+
+    //    |Sxx+Syy+Szz  Syz-Szy  Szx-Sxz Sxy-Syz|
+    //    |Syz-Szy  Sxx-Syy-Szz  Sxy+Syx Szx+Sxz|
+    // N= |Szx-Sxz  Sxy+Syz -Sxx+Syy-Szz Syz+Szy|
+    //    |Sxy-Syz  Szx+Sxz Syz+Szy -Sxx-Syy+Szz|
 
     N11 = M.at<float>(0,0)+M.at<float>(1,1)+M.at<float>(2,2);
     N12 = M.at<float>(1,2)-M.at<float>(2,1);
@@ -333,7 +370,8 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
 
 
     // Step 4: Eigenvector of the highest eigenvalue
-
+    // 特征值分解最大特征值对应的特征向量就是要求的四元数q0,q1,q2,q3
+    // 将(q1 q2 q3)放入vec（四元数的虚部）
     cv::Mat eval, evec;
 
     cv::eigen(N,eval,evec); //evec[0] is the quaternion of the desired rotation
@@ -342,25 +380,34 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
     (evec.row(0).colRange(1,4)).copyTo(vec); //extract imaginary part of the quaternion (sin*axis)
 
     // Rotation angle. sin is the norm of the imaginary part, cos is the real part
+    // 四元数虚部模长 norm(vec)=sin(theta/2), 四元数实部 evec.at<float>(0,0)=q0=cos(theta/2)
+    // 这一步的ang实际是theta/2，theta 是旋转向量中旋转角度
+    // ? 这里也可以用 arccos(q0)=angle/2 得到旋转角吧
     double ang=atan2(norm(vec),evec.at<float>(0,0));
+    //double ang = acos(evec.at<float>(0, 0)); 
 
+    // vec/norm(vec)归一化得到归一化后的旋转向量,然后乘上角度得到包含了旋转轴和旋转角信息的旋转向量vec
     vec = 2*ang*vec/norm(vec); //Angle-axis representation. quaternion angle is the half
 
     mR12i.create(3,3,P1.type());
-
+    // 旋转向量（轴角）转换为旋转矩
     cv::Rodrigues(vec,mR12i); // computes the rotation matrix from angle-axis
 
     // Step 5: Rotate set 2
-
+    // 利用刚计算出来的旋转将三维点旋转到同一个坐标系，P3对应论文里的 r_l,i', Pr1 对应论文里的r_r,i'
     cv::Mat P3 = mR12i*Pr2;
 
     // Step 6: Scale
 
     if(!mbFixScale)
     {
+        // 论文中有2个求尺度方法。一个是p632右中的位置，考虑了尺度的对称性
+        // 代码里实际使用的是另一种方法，这个公式对应着论文中p632左中位置的那个
+        // Pr1 对应论文里的r_r,i',P3对应论文里的 r_l,i',(经过坐标系转换的Pr2), n=3, 剩下的就和论文中都一样了
         double nom = Pr1.dot(P3);
         cv::Mat aux_P3(P3.size(),P3.type());
         aux_P3=P3;
+        // cv::pow是对mat中的每一位进行平方
         cv::pow(P3,2,aux_P3);
         double den = 0;
 
@@ -378,15 +425,18 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
         ms12i = 1.0f;
 
     // Step 7: Translation
-
+    // 计算平移Translation
     mt12i.create(1,3,P1.type());
     mt12i = O1 - ms12i*mR12i*O2;
 
     // Step 8: Transformation
 
     // Step 8.1 T12
+    // 计算双向变换矩阵，目的是在后面的检查的过程中能够进行双向的投影操作
     mT12i = cv::Mat::eye(4,4,P1.type());
 
+    //         |sR t|
+    // mT12i = | 0 1|
     cv::Mat sR = ms12i*mR12i;
 
     sR.copyTo(mT12i.rowRange(0,3).colRange(0,3));
@@ -403,20 +453,28 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
     tinv.copyTo(mT21i.rowRange(0,3).col(3));
 }
 
+/**
+ * @brief 通过计算的Sim3投影，和自身投影的误差比较，进行内点检测
+ *
+ */
 
 void Sim3Solver::CheckInliers()
 {
     vector<cv::Mat> vP1im2, vP2im1;
     Project(mvX3Dc2,vP2im1,mT12i,mK1);
     Project(mvX3Dc1,vP1im2,mT21i,mK2);
-
+    //统计内点数量
     mnInliersi=0;
 
+    // 对于两帧的每一个匹配点
     for(size_t i=0; i<mvP1im1.size(); i++)
     {
+        // 当前关键帧中的地图点直接在当前关键帧图像上的投影坐标mvP1im1，mvP2im2
+        // 对于这对匹配关系,在两帧上的投影点距离都要进行计算
         cv::Mat dist1 = mvP1im1[i]-vP2im1[i];
         cv::Mat dist2 = vP1im2[i]-mvP2im2[i];
 
+        // 取距离的平方作为误差
         const float err1 = dist1.dot(dist1);
         const float err2 = dist2.dot(dist2);
 
@@ -446,6 +504,15 @@ float Sim3Solver::GetEstimatedScale()
     return mBestScale;
 }
 
+/**
+ * @brief 按照给定的Sim3变换进行投影操作,得到三维点的2D投影点
+ *
+ * @param[in] vP3Dw         3D点
+ * @param[in & out] vP2D    投影到图像的2D点
+ * @param[in] Tcw           Sim3变换
+ * @param[in] K             内参
+ */
+
 void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, cv::Mat Tcw, cv::Mat K)
 {
     cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
@@ -457,7 +524,7 @@ void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, cv
 
     vP2D.clear();
     vP2D.reserve(vP3Dw.size());
-
+    //对每个3D点进行投影变换
     for(size_t i=0, iend=vP3Dw.size(); i<iend; i++)
     {
         cv::Mat P3Dc = Rcw*vP3Dw[i]+tcw;

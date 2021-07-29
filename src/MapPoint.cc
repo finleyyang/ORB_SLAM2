@@ -363,7 +363,8 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
 
 //更新平均观测方向和距离，其中平均观测方向是根据mObservations中所有观测到本地地图点的关键帧取平均得到的，平均观测距离是根据参考关键帧得到的
 void MapPoint::UpdateNormalAndDepth()
-{  //1.获取地图点相关信息
+{
+    //1.获取地图点相关信息
     map<KeyFrame*,size_t> observations;
     KeyFrame* pRefKF;
     cv::Mat Pos;
