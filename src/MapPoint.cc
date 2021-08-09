@@ -431,6 +431,7 @@ float MapPoint::GetMaxDistanceInvariance()
     return 1.2f*mfMaxDistance;
 }
 
+// 预测关键帧的尺度
 int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 {
     float ratio;
@@ -448,6 +449,7 @@ int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
     return nScale;
 }
 
+// 预测普通帧的尺度
 int MapPoint::PredictScale(const float &currentDist, Frame* pF)
 {
     float ratio;

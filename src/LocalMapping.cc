@@ -253,6 +253,10 @@ void LocalMapping::MapPointCulling()
         else if(pMP->GetFoundRatio()<0.25f )
         {
             //标准1:召回率小于0.25
+            // (mnFound/mnVisible） < 25%
+            // mnFound ：地图点被多少帧（包括普通帧）看到，次数越多越好
+            // mnVisible：地图点应该被看到的次数
+            // (mnFound/mnVisible）：对于大FOV镜头这个比例会高，对于窄FOV镜头这个比例会低
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
@@ -265,6 +269,8 @@ void LocalMapping::MapPointCulling()
         }
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)
             //通过3个关键帧的考察，认为是好的地图点
+            // 从建立该点开始，已经过了3个关键帧而没有被剔除，则认为是质量高的点
+            // 因此没有SetBadFlag()，仅从队列中删除
             lit = mlpRecentAddedMapPoints.erase(lit);
         else
             lit++;

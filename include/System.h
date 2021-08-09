@@ -177,6 +177,7 @@ private:
     bool mbReset;
 
     // Change mode flags
+    //模式改变标志
     std::mutex mMutexMode;
     bool mbActivateLocalizationMode;
     bool mbDeactivateLocalizationMode;

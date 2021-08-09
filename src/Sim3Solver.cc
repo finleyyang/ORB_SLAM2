@@ -317,7 +317,7 @@ void Sim3Solver::ComputeCentroid(cv::Mat &P, cv::Mat &Pr, cv::Mat &C)
  * @param[in] P2    匹配的3D点(闭环关键帧)
  */
 
-void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
+void Sim3Solver:: ComputeSim3(cv::Mat &P1, cv::Mat &P2)
 {
     // Custom implementation of:
     // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions

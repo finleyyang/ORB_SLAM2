@@ -568,7 +568,7 @@ void Tracking::Track()
         }
 
         // Reset if the camera get lost soon after initialization
-        // 如果初始化不就就跟踪失败，并且relocation也没有搞定，只能reset了
+        // 如果初始化不了就跟踪失败，并且relocation也没有搞定，只能reset了
         if(mState==LOST)
         {
             //如果地图中的关键帧信息过少的话,直接重新进行初始化了
@@ -1094,7 +1094,7 @@ bool Tracking::TrackWithMotionModel()
 
     // Update last frame pose according to its reference keyframe
     // Create "visual odometry" points if in Localization Mode
-    //更新上一帧的位姿，用于双目或者RGBD相机，还会根据深度值产生临时地图点
+    //更新上一帧的位姿;对于双目或者RGBD相机，还会根据深度值产生临时地图点
     UpdateLastFrame();
 
     //用之前估计的速度，用恒速模型得到当前帧的初始位姿
@@ -1855,7 +1855,7 @@ bool Tracking::Relocalization()
 
             // 内点数
             int nInliers;
-            //表示RANSAC已经没有更多的迭代次数可用
+            // 表示RANSAC已经没有更多的迭代次数可用
             bool bNoMore;
 
             PnPsolver* pSolver = vpPnPsolvers[i];

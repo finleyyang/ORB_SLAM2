@@ -30,17 +30,43 @@
 namespace ORB_SLAM2
 {
 
+/**
+ * @brief 根据参考帧构造初始化器
+ *
+ * @param[in] ReferenceFrame        参考帧
+ * @param[in] sigma                 测量误差
+ * @param[in] iterations            RANSAC迭代次数
+ */
 Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iterations)
 {
     mK = ReferenceFrame.mK.clone();
 
     mvKeys1 = ReferenceFrame.mvKeysUn;
 
+    //获取估计误差
     mSigma = sigma;
     mSigma2 = sigma*sigma;
     mMaxIterations = iterations;
 }
 
+/**
+ * @brief 计算基础矩阵和单应性矩阵，选取最佳的来恢复出最开始两帧之间的相对姿态，并进行三角化得到初始地图点
+ * Step 1 重新记录特征点对的匹配关系
+ * Step 2 在所有匹配特征点对中随机选择8对匹配特征点为一组，用于估计H矩阵和F矩阵
+ * Step 3 计算fundamental 矩阵 和homography 矩阵，为了加速分别开了线程计算
+ * Step 4 计算得分比例来判断选取哪个模型来求位姿R,t
+ *
+ * @param[in] CurrentFrame          当前帧，也就是SLAM意义上的第二帧
+ * @param[in] vMatches12            当前帧（2）和参考帧（1）图像中特征点的匹配关系
+ *                                  vMatches12[i]解释：i表示帧1中关键点的索引值，vMatches12[i]的值为帧2的关键点索引值
+ *                                  没有匹配关系的话，vMatches12[i]值为 -1
+ * @param[in & out] R21                   相机从参考帧到当前帧的旋转
+ * @param[in & out] t21                   相机从参考帧到当前帧的平移
+ * @param[in & out] vP3D                  三角化测量之后的三维地图点
+ * @param[in & out] vbTriangulated        标记三角化点是否有效，有效为true
+ * @return true                     该帧可以成功初始化，返回true
+ * @return false                    该帧不满足初始化条件，返回false
+ */
 bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatches12, cv::Mat &R21, cv::Mat &t21,
                              vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
 {
@@ -57,10 +83,15 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     //对应size()，表示实际容器中保存元素的个数
 
     //1.将vMatches12拷贝到mvMatches12，mvMatches12只保存匹配上的特征点对
+    // 将vMatches12（有冗余） 转化为 mvMatches12（只记录了匹配关系）
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
+        //vMatches12[i]解释：i表示帧1中关键点的索引值，vMatches12[i]的值为帧2的关键点索引值
+        //没有匹配关系的话，vMatches12[i]值为 -1
         if(vMatches12[i]>=0)
         {
+            //mvMatches12 中只记录有匹配关系的特征点对的索引值
+            //i表示帧1中关键点的索引值，vMatches12[i]的值为帧2的关键点索引值
             mvMatches12.push_back(make_pair(i,vMatches12[i]));
             mvbMatched1[i]=true;
         }
@@ -68,27 +99,36 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
             mvbMatched1[i]=false;
     }
 
+    // 有匹配的特征点的对数
     const int N = mvMatches12.size();
 
     // Indices for minimum set selection
     //2.准备RANSAC运算中需要的特征点对
     vector<size_t> vAllIndices;
     vAllIndices.reserve(N);
+
+    //在RANSAC的某次迭代中，还可以被抽取来作为数据样本的特征点对的索引，所以这里起的名字叫做可用的索引
     vector<size_t> vAvailableIndices;
 
+    //初始化所有特征点对的索引，索引值0到N-1
     for(int i=0; i<N; i++)
     {
         vAllIndices.push_back(i);
     }
 
     // Generate sets of 8 points for each RANSAC iteration
-    mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
+    // Step 2 在所有匹配特征点对中随机选择8对匹配特征点为一组，用于估计H矩阵和F矩阵
+    // 共选择 mMaxIterations (默认200) 组
+    // mvSets用于保存每次迭代时所使用的向量
+    mvSets = vector< vector<size_t> >(mMaxIterations,   //最大的RANSAC迭代次数
+                                      vector<size_t>(8,0)); //这个则是第二维元素的初始值，也就是第一维。这里其实也是一个第一维的构造函数，第一维vector有8项，每项的初始值为0.
 
     DUtils::Random::SeedRandOnce(0);
 
     //这里最大迭代次数是200次
     for(int it=0; it<mMaxIterations; it++)
     {
+        // 将所有的特征点数据赋给vAvailableIndices
         vAvailableIndices = vAllIndices;
 
         // Select a minimum set
@@ -123,14 +163,36 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     //如果单应矩阵的分数占比大于0.4，则用单应矩阵求导,ORBSLAM中更倾向使用单应矩阵
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
+    // 注意这里更倾向于用H矩阵恢复位姿。如果单应矩阵的评分占比达到了0.4以上,则从单应矩阵恢复运动,否则从基础矩阵恢复运动
     if(RH>0.40)
-        return ReconstructH(vbMatchesInliersH,H,mK,R21,t21,vP3D,vbTriangulated,1.0,50);
+        //更偏向于平面，此时从单应矩阵恢复，函数ReconstructH返回bool型结果
+        return ReconstructH(vbMatchesInliersH,   //输入，匹配成功的特征点对Inliers标记
+                            H,      //输入，前面RANSAC计算后的单应矩阵
+                            mK,     //输入，相机的内参数矩阵
+                            R21,t21,    //输出，计算出来的相机从参考帧1到当前帧2所发生的旋转和位移变换
+                            vP3D,       //特征点对经过三角测量之后的空间坐标，也就是地图点
+                            vbTriangulated, //特征点对是否成功三角化的标记
+                            1.0,    //这个对应的形参为minParallax，即认为某对特征点的三角化测量中，认为其测量有效时 //需要满足的最小视差角（如果视差角过小则会引起非常大的观测误差）,单位是角度
+                            50); //为了进行运动恢复，所需要的最少的三角化测量成功的点个数
     else //if(pF_HF>0.6)
         return ReconstructF(vbMatchesInliersF,F,mK,R21,t21,vP3D,vbTriangulated,1.0,50);
 
     return false;
 }
 
+/**
+ * @brief 计算单应矩阵，假设场景为平面情况下通过前两帧求取Homography矩阵，并得到该模型的评分
+ * 原理参考Multiple view geometry in computer vision  P109 算法4.4
+ * Step 1 将当前帧和参考帧中的特征点坐标进行归一化
+ * Step 2 选择8个归一化之后的点对进行迭代
+ * Step 3 八点法计算单应矩阵矩阵
+ * Step 4 利用重投影误差为当次RANSAC的结果评分
+ * Step 5 更新具有最优评分的单应矩阵计算结果,并且保存所对应的特征点对的内点标记
+ *
+ * @param[in & out] vbMatchesInliers          标记是否是外点
+ * @param[in & out] score                     计算单应矩阵的得分
+ * @param[in & out] H21                       单应矩阵结果
+ */
 
 //H矩阵本来只需要4对点就能解出结果，但是为了能使H和F能在同一维度下比较，所以也取八对点
 void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
@@ -177,6 +239,7 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
         //分值越高说明，计算解的H或F越好
         currentScore = CheckHomography(H21i, H12i, vbCurrentInliers, mSigma);
 
+        // 获取最好的得分对应的单应矩阵
         if(currentScore>score)
         {
             H21 = H21i.clone();
@@ -190,30 +253,56 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
 //相机看到的场景是一个平面
 //连续两帧之间没发生平移，只发生旋转
 
+/**
+ * @brief 计算基础矩阵，假设场景为非平面情况下通过前两帧求取Fundamental矩阵，得到该模型的评分
+ * Step 1 将当前帧和参考帧中的特征点坐标进行归一化
+ * Step 2 选择8个归一化之后的点对进行迭代
+ * Step 3 八点法计算基础矩阵矩阵
+ * Step 4 利用重投影误差为当次RANSAC的结果评分
+ * Step 5 更新具有最优评分的基础矩阵计算结果,并且保存所对应的特征点对的内点标记
+ *
+ * @param[in & out] vbMatchesInliers          标记是否是外点
+ * @param[in & out] score                     计算基础矩阵得分
+ * @param[in & out] F21                       从特征点1到2的基础矩阵
+ */
+
 void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, cv::Mat &F21)
 {
     // Number of putative matches
-    const int N = vbMatchesInliers.size();
+    // const int N = vbMatchesInliers.size();
 
+    const int N = mvMatches12.size();
     // Normalize coordinates
     vector<cv::Point2f> vPn1, vPn2;
     cv::Mat T1, T2;
+    // 将当前帧和参考帧中的特征点坐标进行归一化，主要是平移和尺度变换
+    // 具体来说,就是将mvKeys1和mvKey2归一化到均值为0，一阶绝对矩为1，归一化矩阵分别为T1、T2
+    // 这里所谓的一阶绝对矩其实就是随机变量到取值的中心的绝对值的平均值
+    // 归一化矩阵就是把上述归一化的操作用矩阵来表示。这样特征点坐标乘归一化矩阵可以得到归一化后的坐标
     Normalize(mvKeys1,vPn1, T1);
     Normalize(mvKeys2,vPn2, T2);
+
+    // ! 注意这里取的是归一化矩阵T2的转置,因为基础矩阵的定义和单应矩阵不同，两者去归一化的计算也不相同
     cv::Mat T2t = T2.t();  //用于恢复原始尺度
 
     // Best Results variables
+    // 最优结果
     score = 0.0;
     vbMatchesInliers = vector<bool>(N,false);
 
     // Iteration variables
+    // 某次迭代中，参考帧的特征点坐标
     vector<cv::Point2f> vPn1i(8);
+    // 某次迭代中，当前帧的特征点坐标
     vector<cv::Point2f> vPn2i(8);
     cv::Mat F21i;
+
+    // 每次RANSAC记录的Inliers与得分
     vector<bool> vbCurrentInliers(N,false);
     float currentScore;
 
     // Perform all RANSAC iterations and save the solution with highest score
+    // 下面进行每次的RANSAC迭代
     for(int it=0; it<mMaxIterations; it++)
     {
         // Select a minimum set
@@ -226,7 +315,13 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
             vPn2i[j] = vPn2[mvMatches12[idx].second];
         }
 
+
         cv::Mat Fn = ComputeF21(vPn1i,vPn2i);
+        // 基础矩阵约束：p2^t*F21*p1 = 0，其中p1,p2 为齐次化特征点坐标
+        // 特征点归一化：vPn1 = T1 * mvKeys1, vPn2 = T2 * mvKeys2
+        // 根据基础矩阵约束得到:(T2 * mvKeys2)^t* Hn * T1 * mvKeys1 = 0
+        // 进一步得到:mvKeys2^t * T2^t * Hn * T1 * mvKeys1 = 0
+
         //恢复原始尺度
         F21i = T2t*Fn*T1;
 
@@ -243,11 +338,24 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
     }
 }
 
+/**
+ * @brief 用DLT方法求解单应矩阵H
+ * 这里最少用4对点就能够求出来，不过这里为了统一还是使用了8对点求最小二乘解
+ *
+ * @param[in] vP1               参考帧中归一化后的特征点
+ * @param[in] vP2               当前帧中归一化后的特征点
+ * @return cv::Mat              计算的单应矩阵H
+ */
 
 cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv::Point2f> &vP2)
 {
     const int N = vP1.size();
 
+    // |x'|     | h1 h2 h3 ||x|
+    // |y'| = a | h4 h5 h6 ||y|  简写: x' = a H x, a为一个尺度因子
+    // |1 |     | h7 h8 h9 ||1|
+
+    // 构造用于计算的矩阵 A , SLAM十四讲172页， 将右侧坐标也提到左侧
     cv::Mat A(2*N,9,CV_32F);
 
     for(int i=0; i<N; i++)
@@ -280,13 +388,26 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
     }
 
     //奇异值分解，取vt最后一行
+    // 定义输出变量，u是左边的正交矩阵U， w为奇异矩阵，vt中的t表示是右正交矩阵V的转置
     cv::Mat u,w,vt;
 
     cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
+    // 返回最小奇异值所对应的右奇异向量
+    // 注意前面说的是右奇异值矩阵的最后一列，但是在这里因为是vt，转置后了，所以是行；由于A有9列数据，故最后一列的下标为8
     return vt.row(8).reshape(0, 3);
 }
+
 //超定方程使用SVD分解求解最小二乘解
+
+/**
+ * @brief 根据特征点匹配求fundamental matrix（normalized 8点法）
+ * 注意F矩阵有秩为2的约束，所以需要两次SVD分解
+ *
+ * @param[in] vP1           参考帧中归一化后的特征点
+ * @param[in] vP2           当前帧中归一化后的特征点
+ * @return cv::Mat          最后计算得到的基础矩阵F
+ */
 cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::Point2f> &vP2)
 {
     const int N = vP1.size();
@@ -314,22 +435,35 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
     //2.奇异值分解A，A为8*9矩阵，取vt的最后一行
     cv::Mat u,w,vt;
 
+    // 定义输出变量，u是左边的正交矩阵U， w为奇异矩阵，vt中的t表示是右正交矩阵V的转置
     cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
+    // 第二次SVD分解是为了保证基础矩阵的秩为2
+    // 转换成基础矩阵的形式
     cv::Mat Fpre = vt.row(8).reshape(0, 3);//v的最后一行
 
+    //基础矩阵的秩为2,而我们不敢保证计算得到的这个结果的秩为2,所以需要通过第二次奇异值分解,来强制使其秩为2
     //将F矩阵的秩强制设为2
     cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
     w.at<float>(2)=0;
 
+    // 重新组合好满足秩约束的基础矩阵，作为最终计算结果返回
     return  u*cv::Mat::diag(w)*vt;
 }
 
 //卡方检验通过构造检验统计量x2来比较期望结果和实际结果之间的差别，从而得出观察频数极值的发生概率
 //x2 = ∑（O-E）2/E;
 //根据重投影误差构造统计量X2，其值越大，观察结果和期望结果之间的差别越明显，某次计算结果越可能用到外点
-
+/**
+ * @brief 对给定的homography matrix打分,需要使用到卡方检验的知识
+ *
+ * @param[in] H21                       从参考帧到当前帧的单应矩阵
+ * @param[in] H12                       从当前帧到参考帧的单应矩阵
+ * @param[in] vbMatchesInliers          匹配好的特征点对的Inliers标记
+ * @param[in] sigma                     方差，默认为1
+ * @return float                        返回得分
+ */
 float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vector<bool> &vbMatchesInliers, float sigma)
 {
     const int N = mvMatches12.size();
@@ -381,13 +515,13 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
         // Reprojection error in first image
         // x2in1 = H12*x2
         // 计算img2到img1的重投影误差
+        // |u1|   |h11inv h12inv h13inv||u2|   |u2in1|
+        // |v1| = |h21inv h22inv h23inv||v2| = |v2in1| * w2in1inv
+        // |1 |   |h31inv h32inv h33inv||1 |   |  1  |
         const float w2in1inv = 1.0/(h31inv*u2+h32inv*v2+h33inv);
         //计算比例误差
         const float u2in1 = (h11inv*u2+h12inv*v2+h13inv)*w2in1inv;
         const float v2in1 = (h21inv*u2+h22inv*v2+h23inv)*w2in1inv;
-        // |u2|   |h1 h2 h3|    |u1|
-        // |v2| = |h4 h5 h6| *  |v2|
-        // |1 |   |h7 h8 h9|    |1 |
 
         const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);
         const float chiSquare1 = squareDist1*invSigmaSquare;
@@ -397,11 +531,19 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
         if(chiSquare1>th)
             bIn = false;
         else
+            // 误差越大，得分越低
             score += th - chiSquare1;
 
         // Reprojection error in second image
         // x1in2 = H21*x1
         // 计算img1到img2的重投影误差
+        // 计算从img1 到 img2 的投影变换误差
+
+        // 将图像2中的特征点通过单应变换投影到图像1中
+        // |u2|   |h11 h12 h13||u1|   |u1in2|
+        // |v2| = |h21 h22 h23||v1| = |v1in2| * w1in2inv
+        // |1 |   |h31 h32 h33||1 |   |  1  |
+        // 计算投影归一化坐标
         const float w1in2inv = 1.0/(h31*u1+h32*v1+h33);
         //计算比例误差
         const float u1in2 = (h11*u1+h12*v1+h13)*w1in2inv;
@@ -429,8 +571,19 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
     return score;
 }
 
+/**
+ * @brief 对给定的Fundamental matrix打分
+ *
+ * @param[in] F21                       当前帧和参考帧之间的基础矩阵
+ * @param[in] vbMatchesInliers          匹配的特征点对属于inliers的标记
+ * @param[in] sigma                     方差，默认为1
+ * @return float                        返回得分
+ */
+
 float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesInliers, float sigma)
 {
+
+    // 获取匹配的特征点对的总对数
     const int N = mvMatches12.size();
 
     const float f11 = F21.at<float>(0,0);
@@ -622,6 +775,21 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
 // 这篇参考文献和下面的代码使用了Faugeras SVD-based decomposition算法
 
 //把单应矩阵解出旋转矩阵和位移向量
+/**
+ * @brief 从基础矩阵F中求解位姿R，t及三维点
+ * F分解出E，E有四组解，选择计算的有效三维点（在摄像头前方、投影误差小于阈值、视差角大于阈值）最多的作为最优的解
+ * @param[in] vbMatchesInliers          匹配好的特征点对的Inliers标记
+ * @param[in] F21                       从参考帧到当前帧的基础矩阵
+ * @param[in] K                         相机的内参数矩阵
+ * @param[in & out] R21                 计算好的相机从参考帧到当前帧的旋转
+ * @param[in & out] t21                 计算好的相机从参考帧到当前帧的平移
+ * @param[in & out] vP3D                三角化测量之后的特征点的空间坐标
+ * @param[in & out] vbTriangulated      特征点三角化成功的标志
+ * @param[in] minParallax               认为三角化有效的最小视差角
+ * @param[in] minTriangulated           最小三角化点数量
+ * @return true                         成功初始化
+ * @return false                        初始化失败
+ */
 bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
                       cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
@@ -875,6 +1043,27 @@ void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, 
 }
 
 //使用均值和一阶中心矩归一化，归一化可以增强计算稳定性
+/**
+ * @brief 归一化特征点到同一尺度，作为后续normalize DLT的输入
+ *  [x' y' 1]' = T * [x y 1]'
+ *  归一化后x', y'的均值为0，sum(abs(x_i'-0))=1，sum(abs((y_i'-0))=1
+ *
+ *  为什么要归一化？
+ *  在相似变换之后(点在不同的坐标系下),他们的单应性矩阵是不相同的
+ *  如果图像存在噪声,使得点的坐标发生了变化,那么它的单应性矩阵也会发生变化
+ *  我们采取的方法是将点的坐标放到同一坐标系下,并将缩放尺度也进行统一
+ *  对同一幅图像的坐标进行相同的变换,不同图像进行不同变换
+ *  缩放尺度是为了让噪声对于图像的影响在一个数量级上
+ *
+ *  Step 1 计算特征点X,Y坐标的均值
+ *  Step 2 计算特征点X,Y坐标离均值的平均偏离程度
+ *  Step 3 将x坐标和y坐标分别进行尺度归一化，使得x坐标和y坐标的一阶绝对矩分别为1
+ *  Step 4 计算归一化矩阵：其实就是前面做的操作用矩阵变换来表示而已
+ *
+ * @param[in] vKeys                               待归一化的特征点
+ * @param[in & out] vNormalizedPoints             特征点归一化后的坐标
+ * @param[in & out] T                             归一化特征点的变换矩阵
+ */
 void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T)
 {
     //这里的归一化，归一的是这些点在x方向和在y方向上的一阶绝对矩。步骤如下
